@@ -1,0 +1,11 @@
+.Mer/
+.merlin_prj/
+.log_tmp
+__merlin*.h
+cnn
+vadd
+dotprod
+*.mco
+*.so
+xilinx_com_hls_*.zip
+merlin.log
