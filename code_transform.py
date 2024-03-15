@@ -5,14 +5,17 @@ import re
 
 client = OpenAI(api_key=API_KEY)
 
+model = "gpt-4-turbo-preview"
+# model = "gpt-3.5-turbo"
 
-def transform_code_with_gpt(file_path, prompt_template_1):
+
+def transform_code_with_gpt(file_path, prompt_1):
     with open(file_path, "r") as file:
         code = file.read()
-    prompt = prompt_template_1.format(code=code)
+    prompt = prompt_1.format(code=code)
 
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo",  # Or the latest available version
+        model=model,  # Or the latest available version
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         n=1,
@@ -57,7 +60,7 @@ def parse_and_save_transformed_code(
 
 
 # Example prompt template
-prompt_template_1 = """
+prompt_1 = """
 Here is a C code snippet:
 {code}
 
@@ -65,7 +68,7 @@ Apply code transformations such as loop permutation, loop tiling, loop distribut
 """
 
 # Directory to store transformed files
-target_folder = "./transformed_sources_1"
+target_folder = f"./transformed_sources_{model}_prompt_1"
 if not os.path.exists(target_folder):
     os.makedirs(target_folder)
 
@@ -76,5 +79,5 @@ if __name__ == "__main__":
     for file_name in os.listdir(source_folder):
         file_path = os.path.join(source_folder, file_name)
         if os.path.isfile(file_path):
-            transformed_text = transform_code_with_gpt(file_path, prompt_template_1)
+            transformed_text = transform_code_with_gpt(file_path, prompt_1)
             parse_and_save_transformed_code(transformed_text, file_name, target_folder)
