@@ -2,6 +2,7 @@ from openai import OpenAI
 from config import API_KEY
 import os
 import re
+import prompts
 
 client = OpenAI(api_key=API_KEY)
 
@@ -59,16 +60,10 @@ def parse_and_save_transformed_code(
         print(transformed_text)
 
 
-# Example prompt template
-prompt_1 = """
-Here is a C code snippet:
-{code}
-
-Apply code transformations such as loop permutation, loop tiling, loop distribution, or loop fusion to optimize this code for HLS. Provide the transformed code using markdown code block syntax and explain the rationale behind each transformation.
-"""
+prompt = prompts.prompt_2
 
 # Directory to store transformed files
-target_folder = f"./transformed_sources_{model}_prompt_1"
+target_folder = f"./transformed_sources_{model}_prompt_2"
 if not os.path.exists(target_folder):
     os.makedirs(target_folder)
 
@@ -79,5 +74,5 @@ if __name__ == "__main__":
     for file_name in os.listdir(source_folder):
         file_path = os.path.join(source_folder, file_name)
         if os.path.isfile(file_path):
-            transformed_text = transform_code_with_gpt(file_path, prompt_1)
+            transformed_text = transform_code_with_gpt(file_path, prompt)
             parse_and_save_transformed_code(transformed_text, file_name, target_folder)
