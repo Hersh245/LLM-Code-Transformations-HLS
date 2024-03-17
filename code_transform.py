@@ -6,7 +6,7 @@ import prompts
 
 client = OpenAI(api_key=API_KEY)
 
-model = "gpt-4-turbo-preview"
+# model = "gpt-4-turbo-preview"
 # model = "gpt-3.5-turbo"
 
 
@@ -60,19 +60,92 @@ def parse_and_save_transformed_code(
         print(transformed_text)
 
 
-prompt = prompts.prompt_2
-
-# Directory to store transformed files
-target_folder = f"./transformed_sources_{model}_prompt_2"
-if not os.path.exists(target_folder):
-    os.makedirs(target_folder)
-
 # Iterate over all files in data/sources
 source_folder = "data/sources"
 
+selected_kernels = [
+    # "bicg_kernel.c",
+    # "doitgen_kernel.c",
+    # "atax_kernel.c",
+    # "gemver_kernel.c",
+    # "syrk_kernel.c",
+    # "md_kernel.c",
+    # "heat-3d_kernel.c",
+    # "fdtd-2d_kernel.c",
+    "stencil_stencil2d_kernel.c",
+    # "adi_kernel.c",
+    # "seidel-2d_kernel.c",
+    # "covariance_kernel.c",
+    # "correlation_kernel.c",
+]
+
 if __name__ == "__main__":
-    for file_name in os.listdir(source_folder):
-        file_path = os.path.join(source_folder, file_name)
-        if os.path.isfile(file_path):
-            transformed_text = transform_code_with_gpt(file_path, prompt)
-            parse_and_save_transformed_code(transformed_text, file_name, target_folder)
+    model = "gpt-3.5-turbo"
+    prompt = prompts.prompt_1
+
+    # Directory to store transformed files
+    for i in range(2, 4):
+        target_folder = (
+            f"transformed_sources/transformed_sources_{model}/prompt_1_res_{i}"
+        )
+        if not os.path.exists(target_folder):
+            os.makedirs(target_folder)
+
+        for file_name in selected_kernels:
+            file_path = os.path.join(source_folder, file_name)
+            if os.path.isfile(file_path):
+                transformed_text = transform_code_with_gpt(file_path, prompt)
+                parse_and_save_transformed_code(
+                    transformed_text, file_name, target_folder
+                )
+
+    model = "gpt-4-turbo-preview"
+    prompt = prompts.prompt_1_1
+
+    # Directory to store transformed files
+    for i in range(2, 4):
+        target_folder = f"./transformed_sources_{model}/prompt_1.1_res_{i}"
+        if not os.path.exists(target_folder):
+            os.makedirs(target_folder)
+
+        for file_name in selected_kernels:
+            file_path = os.path.join(source_folder, file_name)
+            if os.path.isfile(file_path):
+                transformed_text = transform_code_with_gpt(file_path, prompt)
+                parse_and_save_transformed_code(
+                    transformed_text, file_name, target_folder
+                )
+
+    # model = "gpt-3.5-turbo"
+    # prompt = prompts.prompt_2
+
+    # # Directory to store transformed files
+    # for i in range(1, 4):
+    #     target_folder = f"./transformed_sources_{model}_prompt_1_res_{i}"
+    #     if not os.path.exists(target_folder):
+    #         os.makedirs(target_folder)
+
+    #     for file_name in selected_kernels:
+    #         file_path = os.path.join(source_folder, file_name)
+    #         if os.path.isfile(file_path):
+    #             transformed_text = transform_code_with_gpt(file_path, prompt)
+    #             parse_and_save_transformed_code(
+    #                 transformed_text, file_name, target_folder
+    #             )
+
+    # model = "gpt-4-turbo-preview"
+    # prompt = prompts.prompt_2
+
+    # # Directory to store transformed files
+    # for i in range(1, 4):
+    #     target_folder = f"./transformed_sources_{model}_prompt_1.5_res_{i}"
+    #     if not os.path.exists(target_folder):
+    #         os.makedirs(target_folder)
+
+    #     for file_name in selected_kernels:
+    #         file_path = os.path.join(source_folder, file_name)
+    #         if os.path.isfile(file_path):
+    #             transformed_text = transform_code_with_gpt(file_path, prompt)
+    #             parse_and_save_transformed_code(
+    #                 transformed_text, file_name, target_folder
+    #             )
