@@ -15,4 +15,6 @@ for file in *.c; do
     else
         echo "Compilation failed for $file."
     fi
+
+    rm -f "${base_name}-bin"
 done

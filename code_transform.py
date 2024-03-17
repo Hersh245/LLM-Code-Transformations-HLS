@@ -64,19 +64,19 @@ def parse_and_save_transformed_code(
 source_folder = "data/sources"
 
 selected_kernels = [
-    # "bicg_kernel.c",
-    # "doitgen_kernel.c",
-    # "atax_kernel.c",
-    # "gemver_kernel.c",
-    # "syrk_kernel.c",
-    # "md_kernel.c",
-    # "heat-3d_kernel.c",
-    # "fdtd-2d_kernel.c",
+    "bicg_kernel.c",
+    "doitgen_kernel.c",
+    "atax_kernel.c",
+    "gemver_kernel.c",
+    "syrk_kernel.c",
+    "md_kernel.c",
+    "heat-3d_kernel.c",
+    "fdtd-2d_kernel.c",
     "stencil_stencil2d_kernel.c",
-    # "adi_kernel.c",
-    # "seidel-2d_kernel.c",
-    # "covariance_kernel.c",
-    # "correlation_kernel.c",
+    "adi_kernel.c",
+    "seidel-2d_kernel.c",
+    "covariance_kernel.c",
+    "correlation_kernel.c",
 ]
 
 if __name__ == "__main__":
