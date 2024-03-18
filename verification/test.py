@@ -20,7 +20,7 @@ def compile_and_run(source_file, executable_name="test_program"):
         subprocess.run(["rm", "-f", executable_name])
         return result.stdout
     except subprocess.CalledProcessError as e:
-        return str(e.stderr)
+        return str(e.stderr) + "\n"
 
 
 def extract_and_rename_functions(code, new_function_name):
@@ -69,12 +69,10 @@ def main():
     res = []
     result = []
 
-    for i in range(1, 4):
+    for i in range(4, 6):
 
         original_folder = "../data/selected_sources/"
-        transformed_folder = (
-            f"../transformed_sources/gpt-4-turbo-preview/prompt_1.1_res_{i}/"
-        )
+        transformed_folder = f"../transformed_sources/gpt-3.5-turbo/prompt_1_res_{i}/"
 
         for code_file, test_file in zip(selected_kernels, test_kernels):
 
@@ -149,7 +147,7 @@ int compare_arrays(double *arr1, double *arr2, int size)
             # Store result
             result.append(transformed_kernel_path[3:] + ": " + output)
 
-    with open("results.txt", "a") as f:
+    with open("results_gpt-3.5-turbo_prompt_1_2.txt", "a") as f:
         for resul in result:
             f.write(resul)
         f.close()

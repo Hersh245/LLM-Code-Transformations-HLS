@@ -1,62 +1,53 @@
-// To optimize the given code for High-Level Synthesis (HLS) using transformations such as loop permutation, loop tiling, loop distribution, or loop fusion, we need to consider the specific goals we're aiming for, such as parallelism, pipelining, and data locality. The original code already includes pragmas for pipelining, tiling, and parallelism, but we can further optimize it by applying loop transformations that enhance these aspects.
+// To optimize the provided C code for High-Level Synthesis (HLS), we can apply several code transformations. The goal is to enhance parallelism, reduce latency, and improve data locality, which are crucial for achieving high performance on hardware accelerators like FPGAs. Here's a step-by-step transformation of the code:
 // 
-// ### Loop Tiling
+// 1. **Loop Tiling**: This transformation breaks down the loops into smaller chunks or "tiles," which can help with data locality and can make it easier to parallelize the computation. For the inner two loops, we'll apply tiling.
 // 
-// Loop tiling can improve data locality and make better use of the cache by processing data in small blocks. This is particularly effective for nested loops that access arrays.
+// 2. **Loop Permutation**: This technique changes the loop order to optimize memory access patterns and can help with parallel execution. However, due to the data dependencies in the Seidel 2D kernel, loop permutation might not be directly applicable without affecting correctness.
 // 
-// ### Loop Permutation
+// 3. **Loop Parallelism**: Exploiting parallelism at the loop level is crucial for HLS. The pragmas already suggest parallelism; we'll ensure the transformed code maintains or improves parallel execution opportunities.
 // 
-// Loop permutation can be used to change the order of nested loops to improve data locality or to enable other optimizations like vectorization.
-// 
-// ### Loop Fusion
-// 
-// Loop fusion combines two adjacent loops that have the same loop bounds into a single loop, which can reduce loop overhead and improve data locality.
-// 
-// ### Loop Distribution
-// 
-// Loop distribution splits a loop into multiple loops over the same range but each performing a part of the original loop's body. It can be used to separate independent computations, which can then be optimized separately.
-// 
-// Given the nature of the code, which involves updating a 2D array based on its neighbors, loop tiling seems to be the most beneficial transformation. Loop permutation and loop fusion don't seem directly applicable here due to the dependencies between iterations. Loop distribution isn't directly applicable either, as the core computation is a single expression.
-// 
-// Here's the transformed code with loop tiling applied:
+// Considering these transformations, let's focus on applying loop tiling effectively, keeping in mind the data dependencies in the Seidel 2D algorithm:
 #pragma ACCEL kernel
 
 void kernel_seidel_2d(int tsteps, int n, double A[120][120]) {
-    int t, i, j, ii, jj;
-    const int TILE_SIZE = 16; // Example tile size, can be adjusted for specific hardware
+  int t, i, j, ii, jj;
+  // Tile sizes, T_I and T_J can be tuned for specific hardware
+  const int T_I = 10; // Example tile size for i dimension
+  const int T_J = 10; // Example tile size for j dimension
 
-    //#pragma scop
+  //#pragma scop
 
-    #pragma ACCEL PIPELINE auto{__PIPE__L0}
+  #pragma ACCEL PIPELINE auto{__PIPE__L0}
 
-    #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
+  #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
 
-    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-    for (t = 0; t <= 39; t++) {
+  #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
+  for (t = 0; t <= 39; t++) {
 
-        #pragma ACCEL PIPELINE auto{__PIPE__L1}
+    #pragma ACCEL PIPELINE auto{__PIPE__L1}
 
-        #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+    #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
 
-        #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-        for (ii = 1; ii <= 118; ii += TILE_SIZE) {
-            for (jj = 1; jj <= 118; jj += TILE_SIZE) {
+    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
+    // Applying loop tiling for i and j loops
+    for (ii = 1; ii <= 118; ii += T_I) {
+      for (jj = 1; jj <= 118; jj += T_J) {
 
-                #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
-                for (i = ii; i < ii + TILE_SIZE && i <= 118; i++) {
-                    for (j = jj; j < jj + TILE_SIZE && j <= 118; j++) {
-                        A[i][j] = (A[i - 1][j - 1] + A[i - 1][j] + A[i - 1][j + 1] + A[i][j - 1] + A[i][j] + A[i][j + 1] + A[i + 1][j - 1] + A[i + 1][j] + A[i + 1][j + 1]) / 9.0;
-                    }
-                }
-            }
+        #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
+        for (i = ii; i < ((ii + T_I) < 119 ? (ii + T_I) : 119); i++) {
+          for (j = jj; j < ((jj + T_J) < 119 ? (jj + T_J) : 119); j++) {
+            A[i][j] = (A[i - 1][j - 1] + A[i - 1][j] + A[i - 1][j + 1] + A[i][j - 1] + A[i][j] + A[i][j + 1] + A[i + 1][j - 1] + A[i + 1][j] + A[i + 1][j + 1]) / 9.0;
+          }
         }
+      }
     }
-    //#pragma endscop
+  }
+  //#pragma endscop
 }
-// ### Rationale:
+// **Rationale Behind Transformations:**
 // 
-// - **Loop Tiling**: By applying loop tiling, we process the array `A` in smaller blocks of size `TILE_SIZE`. This can improve cache utilization as the working set of the array elements fits better into the cache, reducing cache misses. It also provides opportunities for parallel execution within tiles.
-// - **Tile Size**: The `TILE_SIZE` is a parameter that can be tuned based on the specific hardware's cache size and architecture to achieve optimal performance.
-// - **Pragmas**: The original pragmas for pipelining, tiling, and parallelism are preserved to ensure that the HLS tool can further optimize the tiled loops.
+// - **Loop Tiling**: By dividing the loops into smaller blocks, we can potentially fit the working set of data into faster, on-chip memory, reducing memory access times. This is particularly beneficial for hardware accelerators.
+// - **Maintaining Data Dependency**: The Seidel 2D kernel updates each cell based on its neighbors. The original loop order respects the data dependencies required for correct execution. While loop permutation might offer benefits in some scenarios, it's crucial not to violate these dependencies, hence it was not applied here.
+// - **Parallelism**: The original pragmas suggest an intent to parallelize the loops. The transformed code maintains these pragmas and the potential for parallel execution, especially within the tiled loops. The choice of tile sizes (T_I and T_J) can significantly impact the effectiveness of parallelism and should be tuned based on the target hardware's characteristics.
 // 
-// This transformation aims to balance the workload and improve data locality, potentially leading to higher performance on hardware accelerated platforms.
+// This transformation aims to balance between improving data locality through tiling and maintaining the potential for parallel execution, which are key considerations for HLS targeted at hardware accelerators.

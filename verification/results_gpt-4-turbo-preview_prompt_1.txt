@@ -1,0 +1,13 @@
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/bicg_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/doitgen_kernel.c: Failure: The outputs of the functions differ.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/atax_kernel.c: Failure: The outputs of the functions differ.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/gemver_kernel.c: Failure: The outputs of the functions differ.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/syrk_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/md_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/heat-3d_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/fdtd-2d_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/stencil_stencil2d_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/adi_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/seidel-2d_kernel.c: Failure: The outputs of the functions differ.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/covariance_kernel.c: Success: The outputs of both functions are equivalent.
+transformed_sources/gpt-4-turbo-preview/prompt_1_res_1/correlation_kernel.c: Failure: The outputs of the functions differ.

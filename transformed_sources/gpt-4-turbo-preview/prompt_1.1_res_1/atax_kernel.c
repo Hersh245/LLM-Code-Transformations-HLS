@@ -1,47 +1,45 @@
-// To optimize the given C code for High-Level Synthesis (HLS) using code transformations such as loop permutation, loop tiling, loop distribution, or loop fusion, we need to consider the goals of reducing memory access latency, increasing data reuse, and enabling parallel execution. Here's the transformed code with explanations for each transformation:
+// To optimize the given code for High-Level Synthesis (HLS), we can apply several transformations. The goal is to improve parallelism, data locality, and pipeline efficiency. Here's how we can transform the code:
+// 
+// 1. **Loop Fusion**: We notice that the two inner loops operate over the same range and can be fused to improve data locality and reduce the overhead of loop control. However, due to the dependency between `tmp[i]` and `y[j]` updates, direct fusion isn't straightforward. We need to ensure `tmp[i]` is fully computed before being used in the second loop. Given this dependency, direct loop fusion isn't applicable without altering the computation's correctness.
+// 
+// 2. **Loop Tiling**: This technique isn't directly applicable here due to the dependency pattern and the relatively small loop bounds that might not justify the overhead of tiling. Tiling is more beneficial when working with larger matrices where data locality becomes a significant performance bottleneck.
+// 
+// 3. **Loop Unrolling and Pipelining**: The pragmas already suggest that pipelining and parallel execution are intended. We can enhance this by specifying more concrete factors for parallelism and pipelining if the target hardware characteristics are known. For an auto factor, HLS tools will attempt to determine the optimal factor, but specifying it can sometimes yield better results based on the specific hardware.
+// 
+// Given the constraints and the initial attempt to optimize using pragmas, here's an optimized version of the code with explanations for the applied transformations:
 #pragma ACCEL kernel
 
 void kernel_atax(int m, int n, double A[116][124], double x[124], double y[124], double tmp[116]) {
-  int i, j;
+    int i, j;
 
-  // Initialize y to 0
-  for (i = 0; i < 124; i++) {
-    y[i] = ((double)0);
-  }
+    // Initialize y to 0
+    for (i = 0; i < 124; i++)
+        y[i] = ((double)0);
 
-  #pragma ACCEL PIPELINE auto{__PIPE__L0}
-  #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
-  #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
+    // Combined loop for tmp and y updates to improve data locality
+    // Note: Direct loop fusion isn't applied due to dependency.
+    // Instead, we ensure efficient use of the pipelining and parallelism pragmas.
+    #pragma ACCEL PIPELINE auto{__PIPE__L0}
+    for (i = 0; i < 116; i++) {
+        tmp[i] = 0.0;
 
-  // Loop distribution applied to separate the concerns of tmp and y updates
-  for (i = 0; i < 116; i++) {
-    tmp[i] = 0.0;
+        // Use parallelism for the tmp calculation
+        #pragma ACCEL PARALLEL reduction=tmp FACTOR=auto{__PARA__L0_0}
+        for (j = 0; j < 124; j++) {
+            tmp[i] += A[i][j] * x[j];
+        }
 
-    #pragma ACCEL PARALLEL reduction=tmp FACTOR=auto{__PARA__L0_0}
-    for (j = 0; j < 124; j++) {
-      tmp[i] += A[i][j] * x[j];
+        // Use parallelism for the y update, ensuring tmp[i] is fully computed
+        #pragma ACCEL PARALLEL reduction=y FACTOR=auto{__PARA__L0_1}
+        for (j = 0; j < 124; j++) {
+            y[j] += A[i][j] * tmp[i];
+        }
     }
-  }
-
-  // Since tmp is computed for all i before being used, we can distribute the loops
-  // This allows for better pipelining and parallelization opportunities
-  for (i = 0; i < 116; i++) {
-    #pragma ACCEL PARALLEL reduction=y FACTOR=auto{__PARA__L0_1}
-    for (j = 0; j < 124; j++) {
-      y[j] += A[i][j] * tmp[i];
-    }
-  }
 }
-// ### Rationale Behind Transformations:
+// **Rationale Behind Transformations**:
 // 
-// 1. **Loop Distribution**: The original code computes `tmp[i]` and updates `y[j]` within the same loop iteration. By distributing these loops, we separate the concerns of computing `tmp` and updating `y`. This separation allows for better optimization opportunities, such as parallelization and pipelining, because the computation of `tmp` is completed for all `i` before any updates to `y` are made. This ensures that when updating `y`, all necessary `tmp` values are already computed, allowing for more efficient parallel execution.
+// - **Preserving Data Dependency**: The original code's dependency between `tmp[i]` and `y[j]` computations prevents direct loop fusion without altering the program's semantics.
+// - **Exploiting Parallelism**: The use of `#pragma ACCEL PARALLEL` with reduction on `tmp` and `y` is aimed at exploiting data-level parallelism. By indicating these as reduction variables, we hint at the compiler to optimize the accumulation operations.
+// - **Pipelining**: The `#pragma ACCEL PIPELINE` pragma is kept to suggest that the outer loop should be pipelined, allowing for overlapped execution of iterations. This is crucial for achieving high throughput in hardware accelerators.
 // 
-// 2. **Parallelization Pragmas**: The `#pragma ACCEL PARALLEL` with `reduction` is used to indicate that the loop can be executed in parallel with a reduction operation on `tmp` and `y`. The `FACTOR=auto` hints to the HLS tool that it should automatically determine the best factor for parallel execution. This is crucial for achieving high performance, as it enables concurrent execution of independent operations.
-// 
-// 3. **Pipeline Pragma**: The `#pragma ACCEL PIPELINE` pragma is retained from the original code. Pipelining is a technique that allows for the overlapping of loop iterations, significantly speeding up the execution. The `auto` option suggests that the HLS tool should automatically manage the pipelining process.
-// 
-// 4. **Tiling Pragma**: Although not directly applied in the transformation due to the nature of the code, the `#pragma ACCEL TILE` pragma is kept for potential manual or automatic tiling optimizations by the HLS tool. Tiling can be beneficial for improving data locality and cache usage, but its application depends on the specific memory access patterns and hardware characteristics.
-// 
-// ### Conclusion:
-// 
-// The transformed code aims to optimize memory access patterns and computational efficiency for HLS by applying loop distribution and leveraging parallelization and pipelining pragmas. These transformations are designed to improve the performance of the code on hardware by increasing data reuse, reducing latency, and enabling concurrent execution of independent operations.
+// In summary, without altering the program's semantics and given the constraints around data dependencies, the primary optimizations revolve around better utilization of the provided pragmas for parallelism and pipelining. Direct loop transformations such as fusion or tiling are constrained by the code's structure and the potential for altering the computation's correctness.

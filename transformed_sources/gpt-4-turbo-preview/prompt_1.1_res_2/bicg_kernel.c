@@ -1,56 +1,58 @@
-// To optimize the given C code snippet for High-Level Synthesis (HLS) using code transformations, we'll focus on improving parallelism, data locality, and reducing memory access latency. The transformations we'll apply include loop interchange (permutation), loop tiling, and loop distribution. These transformations aim to enhance the efficiency of the code when synthesized to hardware, such as FPGAs.
-// 
-// ### Original Code Analysis
-// The original code consists of two main loops. The first loop initializes the array `s`, and the second nested loop computes the values for arrays `q` and `s` using matrix `A` and vectors `p` and `r`. The pragma directives suggest an intention to parallelize and pipeline operations, but there's room for optimization, especially in terms of loop ordering and data access patterns.
-// 
-// ### Optimized Code
+// To optimize the given C code for High-Level Synthesis (HLS) using code transformations such as loop permutation, loop tiling, loop distribution, or loop fusion, we need to consider the primary goals: improving parallelism, reducing memory access latency, and enhancing data reuse. Here's the transformed code with explanations for each transformation applied:
 #pragma ACCEL kernel
 
 void kernel_bicg_optimized(int m, int n, double A[124][116], double s[116], double q[124], double p[116], double r[124]) {
     int i, j;
-    double temp_s[116] = {0.0}; // Temporary array for s to ensure reduction is efficiently handled
+    double temp_s[116] = {0.0}; // Temporary array for s to allow for parallel accumulation
 
-    // Initialize q to zero
+    // Loop distribution applied to separate the operations on s and q
+    // This allows for more focused optimization on each part
+
+    // Initialize s with zeros - this loop is now redundant due to temp_s initialization
+    // and can be removed to reduce the total number of iterations.
+    /*
     #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-    for (i = 0; i < 124; i++) {
-        q[i] = 0.0;
+    for (i = 0; i < 116; i++) {
+        s[i] = ((double)0);
     }
+    */
 
-    // Loop interchange applied to improve data locality on 's' updates
-    // Loop distribution to separate concerns between 's' and 'q' updates
-
-    // Update 's' in a separate loop to exploit parallelism
+    // Optimized loop for calculating s
     #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-    for (j = 0; j < 116; j++) {
-        #pragma ACCEL PIPELINE auto{__PIPE__L2}
-        for (i = 0; i < 124; i++) {
+    for (i = 0; i < 124; i++) {
+        #pragma ACCEL PIPELINE auto{__PIPE__L1}
+        for (j = 0; j < 116; j++) {
             temp_s[j] += r[i] * A[i][j];
         }
     }
 
-    // Reduction to update 's' from 'temp_s'
-    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
-    for (j = 0; j < 116; j++) {
-        s[j] = temp_s[j];
+    // Copy the results from temp_s to s after accumulation
+    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
+    for (i = 0; i < 116; i++) {
+        s[i] = temp_s[i];
     }
 
-    // Update 'q' in a separate loop to exploit parallelism
-    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L3}
+    // Optimized loop for calculating q
+    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
     for (i = 0; i < 124; i++) {
-        #pragma ACCEL PIPELINE auto{__PIPE__L3}
+        q[i] = 0.0; // Initialize q[i] here to avoid a separate loop
+
+        #pragma ACCEL PIPELINE auto{__PIPE__L1}
         for (j = 0; j < 116; j++) {
             q[i] += A[i][j] * p[j];
         }
     }
 }
-// ### Rationale Behind Transformations
+// ### Rationale Behind Each Transformation:
 // 
-// 1. **Loop Interchange**: We interchanged the loops for updating `s` to improve data locality. This way, each iteration of the outer loop focuses on a single element of `s`, reducing the number of times data needs to be fetched from memory.
+// 1. **Temporary Array for `s`**: To enable parallel accumulation without race conditions, a temporary array `temp_s` is used. This allows each iteration of the loop to independently accumulate into `temp_s`, which is then copied back to `s` after all parallel operations are complete.
 // 
-// 2. **Loop Distribution**: We separated the updates to `s` and `q` into different loops. This simplifies the loop bodies, making it easier for the HLS tool to optimize and parallelize the operations. It also allows us to apply different optimization strategies tailored to each loop.
+// 2. **Loop Distribution**: The original loop that updates both `s` and `q` within the same iteration is split into two separate loops. This separation allows for more focused optimization on each part and reduces the complexity within a single loop iteration, potentially improving parallelism and pipeline efficiency.
 // 
-// 3. **Introduction of a Temporary Array (`temp_s`)**: To efficiently handle the reduction operation when updating `s`, we use a temporary array. This avoids potential dependencies and conflicts that could arise from trying to update `s` directly within the loop, enabling better parallelization.
+// 3. **Removal of Redundant Initialization for `s`**: The original loop that initializes `s` with zeros is removed because `temp_s` is already initialized with zeros. This reduces unnecessary iterations and leverages static initialization to ensure all elements are zeroed before use.
 // 
-// 4. **Parallelism and Pipelining Pragmas**: We retained the original pragmas and adjusted their placement according to the transformed loop structure. These pragmas hint to the HLS tool how to parallelize loops and pipeline operations for better performance.
+// 4. **Loop Fusion**: Not directly applied here, but by integrating the initialization of `q[i]` within the loop that computes its value, we effectively perform a minor fusion that reduces the need for a separate loop just for initialization.
 // 
-// By applying these transformations, the optimized code is expected to exhibit improved parallelism, reduced memory access latency, and better utilization of hardware resources when synthesized using HLS for FPGA targets.
+// 5. **Pragma Directives**: The original pragma directives are maintained and appropriately placed to guide the HLS tool in optimizing the loops. The `PIPELINE` pragma is used to suggest that iterations of the inner loop can be overlapped, while the `PARALLEL` pragma indicates potential parallel execution of loop iterations, subject to resource availability.
+// 
+// By applying these transformations, the code is better structured for HLS tools to exploit parallelism and pipeline execution, potentially leading to a more efficient hardware implementation.

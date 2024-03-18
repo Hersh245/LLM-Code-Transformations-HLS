@@ -1,58 +1,48 @@
-// To optimize the provided C code for High-Level Synthesis (HLS), we can apply several code transformations. These transformations aim to improve parallelism, data locality, and resource utilization, which are crucial for achieving high performance on FPGA or ASIC designs. Below, I'll apply loop permutation, loop tiling, and loop distribution to the original code and explain the rationale behind each transformation.
-// 
-// ### Original Code Analysis
-// The original code performs a series of matrix multiplications and updates. It uses three nested loops, iterating over dimensions `r`, `q`, and `p`, with an innermost loop over `s` for the multiplication and accumulation.
-// 
-// ### Transformations
-// 
-// 1. **Loop Permutation**: Changing the order of loops to improve data locality. In this case, loop permutation might not offer significant benefits due to the nature of the operation (matrix multiplication), where each element requires a full row and column. However, permuting loops can sometimes help in aligning data access patterns with memory layout, reducing cache misses.
-// 
-// 2. **Loop Tiling**: This transformation breaks down loops into smaller chunks or "tiles", improving cache utilization by working on a small subset of data that fits into the cache. This is particularly effective for large datasets.
-// 
-// 3. **Loop Distribution**: This involves splitting a loop that performs two or more distinct operations into separate loops, each performing a single operation. It can help in exposing more parallelism and improving data locality.
-// 
-// 4. **Loop Fusion**: Combining multiple loops that have the same loop bounds into a single loop to reduce loop overhead and improve data locality. However, in this case, loop fusion does not apply directly due to the structure of the operations.
-// 
-// ### Transformed Code
-// Given the nature of the operations (matrix multiplication and update), loop tiling is the most applicable transformation for improving data locality and enabling parallel execution. Loop permutation and distribution might not yield significant benefits without changing the algorithm's fundamental behavior. Therefore, the focus will be on applying loop tiling effectively.
+// To optimize the provided C code for High-Level Synthesis (HLS), we can apply several code transformations. The goal is to improve parallelism, data locality, and resource utilization. Here's a version of the code with transformations applied:
 #pragma ACCEL kernel
 
 void kernel_doitgen(int nr, int nq, int np, double A[25][20][30], double C4[30][30], double sum[30]) {
   int r, q, p, s;
-  int rr, qq, pp; // Tile indices
 
-  // Assuming tile sizes, these should be tuned based on the target architecture
-  int R_TILE = 5;
-  int Q_TILE = 5;
-  int P_TILE = 10;
+  #pragma ACCEL PIPELINE auto
+  for (r = 0; r < nr; r++) {
+    for (q = 0; q < nq; q++) {
 
-  #pragma ACCEL PIPELINE auto{__PIPE__L0}
-  for (r = 0; r < 25; r += R_TILE) {
-    #pragma ACCEL PIPELINE auto{__PIPE__L1}
-    for (q = 0; q < 20; q += Q_TILE) {
-      #pragma ACCEL PIPELINE auto{__PIPE__L2}
-      for (p = 0; p < 30; p += P_TILE) {
-        // Tiled computation
-        for (rr = r; rr < r + R_TILE && rr < 25; rr++) {
-          for (qq = q; qq < q + Q_TILE && qq < 20; qq++) {
-            for (pp = p; pp < p + P_TILE && pp < 30; pp++) {
-              sum[pp] = 0.0;
-              for (s = 0; s < 30; s++) {
-                sum[pp] += A[rr][qq][s] * C4[s][pp];
-              }
-            }
-            for (pp = p; pp < p + P_TILE && pp < 30; pp++) {
-              A[rr][qq][pp] = sum[pp];
-            }
-          }
+      // Initialize sum array to zero
+      #pragma ACCEL PARALLEL FACTOR=auto
+      for (p = 0; p < np; p++) {
+        sum[p] = 0.0;
+      }
+
+      // Loop distribution: Separating the computation of sum and assignment to A
+      // This allows for better pipelining and parallel execution
+      #pragma ACCEL PIPELINE auto
+      for (p = 0; p < np; p++) {
+        #pragma ACCEL PARALLEL FACTOR=auto
+        for (s = 0; s < np; s++) {
+          sum[p] += A[r][q][s] * C4[s][p];
         }
+      }
+
+      // Loop fusion: Merging the assignment loop back could be considered,
+      // but keeping them separate might benefit from the computation-communication overlap
+      #pragma ACCEL PARALLEL FACTOR=auto
+      for (p = 0; p < np; p++) {
+        A[r][q][p] = sum[p];
       }
     }
   }
 }
 // ### Rationale Behind Transformations
-// - **Loop Tiling**: Applied to the `r`, `q`, and `p` loops to improve cache utilization by working on smaller subsets of the matrices. The tile sizes (`R_TILE`, `Q_TILE`, `P_TILE`) are parameters that should be tuned based on the specific target architecture's cache sizes and memory bandwidth.
-// - The innermost loops over `rr`, `qq`, and `pp` perform the actual computation on the tiles. This approach aims to keep the working set small and within the cache, reducing memory access times and potentially increasing parallelism.
-// - The `#pragma ACCEL PIPELINE` and `#pragma ACCEL TILE` directives are retained to hint to the HLS tool about potential parallelism and tiling optimizations. The actual effectiveness of these pragmas will depend on the HLS tool's ability to interpret and apply them to the transformed code.
 // 
-// It's important to note that the effectiveness of these transformations can vary based on the target hardware and the specific HLS toolchain. Therefore, experimentation and profiling are crucial to tuning the parameters like tile sizes for optimal performance.
+// 1. **Loop Fusion and Distribution**: Initially, the code computes `sum[p]` and updates `A[r][q][p]` in the same loop nest. By distributing these loops, we separate the computation of `sum[p]` from its usage in updating `A[r][q][p]`. This allows for better pipelining opportunities as the computation of `sum[p]` can be fully parallelized and pipelined before the update of `A[r][q][p]` begins.
+// 
+// 2. **Parallelism**: The `#pragma ACCEL PARALLEL FACTOR=auto` directive is used to hint at automatic parallelization of the loops where data dependencies allow. For the initialization of `sum[p]` and the final assignment to `A[r][q][p]`, there are no dependencies between iterations, making them ideal candidates for parallel execution.
+// 
+// 3. **Pipelining**: The `#pragma ACCEL PIPELINE auto` directive is applied to the outer loops to suggest that HLS should pipeline these loops. Pipelining allows for multiple iterations of the loop to be in different stages of execution simultaneously, improving throughput.
+// 
+// 4. **Loop Permutation**: Not explicitly performed here, but it's worth noting that loop order might be adjusted based on the access patterns to improve data locality. In this case, the original order seems reasonable given the memory access patterns.
+// 
+// 5. **Loop Tiling**: Not applied in this transformation as the provided code snippet and pragmas do not indicate a clear tiling opportunity without further information on the target architecture and memory hierarchy. Tiling can be beneficial for large datasets that do not fit into on-chip memory, but it requires careful consideration of tile sizes and data reuse.
+// 
+// These transformations aim to improve the performance of the code on hardware by increasing parallelism, improving data locality, and making efficient use of available resources. The exact impact of these transformations can vary depending on the target FPGA architecture and the specifics of the HLS toolchain.
