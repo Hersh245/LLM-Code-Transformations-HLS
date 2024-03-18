@@ -1,61 +1,46 @@
-// To optimize the provided C code for High-Level Synthesis (HLS), we'll apply several code transformations aimed at improving parallelism, data locality, and reducing the number of redundant computations. The transformations include loop permutation, loop tiling, loop distribution, and potentially loop fusion. However, due to the nature of the code and the target optimizations, not all of these transformations might be applicable or beneficial.
-// 
-// ### Original Code Analysis
-// The original code performs a symmetric rank-k update (SYRK) operation, which is a common BLAS (Basic Linear Algebra Subprograms) operation. The operation is defined for lower triangular matrices, as indicated by the condition `if (j <= i)` inside the loops. The code consists of two main parts:
-// 1. Scaling the lower triangular part of matrix `C` by `beta`.
-// 2. Performing the rank-k update on the lower triangular part of matrix `C` using matrix `A` and scaling factor `alpha`.
+// Given the performance estimates and the structure of the original code, it's clear that the most time-consuming part is the nested loops, particularly the loop over `k` and the innermost loop over `j` within it. To optimize this code for High-Level Synthesis (HLS), we can apply several transformations, including loop permutation, loop tiling, loop distribution, and possibly loop fusion, while keeping the original pragmas in place to guide the HLS tool in optimizing the hardware implementation.
 // 
 // ### Optimized Code
 #pragma ACCEL kernel
 
 void kernel_syrk_optimized(double alpha, double beta, double C[80][80], double A[80][60]) {
-  int i, j, k;
+    int i, j, k;
 
-  // Apply loop tiling to improve data locality and enable more efficient use of on-chip memory.
-  // Tile sizes are chosen based on typical FPGA on-chip memory sizes and access patterns.
-  // Adjust TILE_SIZE_I and TILE_SIZE_J based on the specific FPGA characteristics.
-  const int TILE_SIZE_I = 20; // Example tile size for 'i' loop
-  const int TILE_SIZE_J = 20; // Example tile size for 'j' loop
-
-  // Loop distribution applied to separate the scaling of C and the update of C.
-  // This helps in applying different optimizations for each part.
-
-  // Part 1: Scaling C by beta
-  for (i = 0; i < 80; i += TILE_SIZE_I) {
-    for (j = 0; j <= i; j += TILE_SIZE_J) { // Adjusted loop bounds for triangular access
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-      for (int ii = i; ii < i + TILE_SIZE_I && ii < 80; ii++) {
-        for (int jj = j; jj < j + TILE_SIZE_J && jj <= ii; jj++) {
-          C[ii][jj] *= beta;
+    #pragma ACCEL PIPELINE auto{__PIPE__L0}
+    #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
+    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
+    for (i = 0; i < 80; i++) {
+        for (j = 0; j <= i; j++) {
+            C[i][j] *= beta;
         }
-      }
     }
-  }
 
-  // Part 2: Performing the rank-k update
-  for (i = 0; i < 80; i += TILE_SIZE_I) {
-    for (j = 0; j <= i; j += TILE_SIZE_J) { // Adjusted loop bounds for triangular access
-
-#pragma ACCEL PIPELINE auto{__PIPE__L2}
-      for (k = 0; k < 60; k++) {
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
-        for (int ii = i; ii < i + TILE_SIZE_I && ii < 80; ii++) {
-          for (int jj = j; jj < j + TILE_SIZE_J && jj <= ii; jj++) {
-            C[ii][jj] += alpha * A[ii][k] * A[jj][k];
-          }
+    #pragma ACCEL PIPELINE auto{__PIPE__L2}
+    #pragma ACCEL TILE FACTOR=auto{__TILE__L2}
+    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
+    for (i = 0; i < 80; i++) {
+        for (j = 0; j <= i; j++) {
+            #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L3}
+            for (k = 0; k < 60; k++) {
+                C[i][j] += alpha * A[i][k] * A[j][k];
+            }
         }
-      }
     }
-  }
 }
 // ### Rationale Behind Transformations
-// 1. **Loop Tiling**: Applied to both the scaling and updating parts of the code to improve data locality. By working on smaller sub-matrices, we can make better use of the FPGA's on-chip memory, reducing the need for slower off-chip memory accesses. This is particularly effective for FPGAs due to their limited but fast on-chip memory resources.
-// 2. **Loop Distribution**: Separating the scaling of `C` by `beta` and the rank-k update allows us to apply different optimizations (like tiling) more effectively to each part. This also makes the code structure clearer and can help in further parallelization efforts.
-// 3. **Loop Permutation**: Adjusting loop bounds and orders within the tiled loops to ensure that memory accesses are as sequential as possible, improving memory access patterns and potentially increasing the efficiency of the memory subsystem.
-// 4. **Parallelism**: The use of `#pragma ACCEL PARALLEL` and `#pragma ACCEL PIPELINE` directives is maintained and adjusted to the transformed loop structure to exploit parallelism at different levels of the computation.
 // 
-// ### Note
-// - The tile sizes (`TILE_SIZE_I` and `TILE_SIZE_J`) are chosen as examples. In practice, these should be tuned based on the specific FPGA architecture and the available on-chip memory resources to achieve optimal performance.
-// - Further optimizations might include exploring different tile sizes, adjusting parallelism factors, and potentially applying additional HLS-specific optimizations based on the target FPGA architecture.
+// 1. **Loop Distribution**: The original code performs two distinct operations within the outer `i` loop: scaling `C[i][j]` by `beta` and accumulating the product of `alpha`, `A[i][k]`, and `A[j][k]` into `C[i][j]`. By distributing these loops, we separate these concerns, making it clearer to the HLS tool how to optimize memory accesses and parallelism. This transformation could potentially allow for better pipelining and parallel execution of independent operations.
+// 
+// 2. **Loop Permutation**: The original inner loops over `j` and `k` are nested in a way that might not be optimal for memory access patterns, especially considering the dependencies in the matrix multiplication and accumulation. However, given the nature of the computation (symmetric rank-k update), the options for permuting loops are limited without changing the algorithm's semantics. The primary transformation here is distributing the loops over `j` and `k` to separate the scaling and accumulation operations.
+// 
+// 3. **Maintaining Pragmas**: All original pragmas have been kept in place to ensure that the HLS tool's guidance for parallelism, pipelining, and tiling is preserved. These pragmas are crucial for informing the HLS tool about the intended parallelism and optimization strategies, especially in the context of FPGA synthesis where resource utilization and timing constraints are critical.
+// 
+// 4. **Loop Fusion**: There's no direct application of loop fusion in this transformation since the primary goal was to distribute the loops to separate the scaling and accumulation operations. However, by restructuring the loops and keeping the operations within their respective distributed loops, we aim for a more efficient execution model that could be implicitly better managed by the HLS tool.
+// 
+// ### Expected Impact
+// 
+// - **Improved Memory Access**: By distributing the loops and separating the scaling and accumulation operations, we might improve the locality of memory accesses, especially for the `C` matrix.
+// - **Enhanced Parallelism**: Keeping the pragmas and restructuring the loops could allow the HLS tool to better exploit parallelism, potentially leading to a reduction in accumulated cycles (AC) and cycles per call (CPC).
+// - **Pipeline Efficiency**: With clearer separation of concerns and potentially improved memory access patterns, the HLS tool might be able to more effectively pipeline the operations, especially the accumulation loop, which is the most computationally intensive part of the algorithm.
+// 
+// These transformations aim to guide the HLS tool in generating a more efficient hardware implementation, potentially reducing the overall execution time and improving resource utilization on the target FPGA.

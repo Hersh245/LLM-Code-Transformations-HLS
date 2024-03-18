@@ -1,54 +1,42 @@
-// To optimize the provided C code for High-Level Synthesis (HLS), we'll apply a series of transformations. The goal is to improve data locality, parallelism, and reduce memory access latency. Here's an overview of the transformations applied:
+// Given the performance estimates and the structure of the original code, we can apply several optimizations to improve its performance for High-Level Synthesis (HLS). The key areas to focus on are loop transformations that can enhance data locality, reduce memory access times, and increase the level of parallelism. The transformations considered here are:
 // 
-// 1. **Loop Permutation**: Changing the order of loops to improve data locality.
-// 2. **Loop Tiling**: Breaking loops into smaller chunks to make better use of cache and reduce memory access times.
-// 3. **Loop Distribution**: Splitting a loop into multiple loops to separate different computations, which can help in parallel execution.
-// 4. **Loop Fusion**: Combining loops that have the same loop bounds and are independent, to reduce loop overhead and improve data locality.
+// 1. **Loop Tiling**: This can improve cache utilization by working on smaller chunks of the data at a time.
+// 2. **Loop Fusion**: Combining loops that iterate over the same range can reduce the overhead of loop control and improve data locality.
+// 3. **Loop Permutation**: Changing the order of nested loops can improve memory access patterns, making them more sequential.
 // 
-// Given the nature of the code and the directives for HLS, we'll focus on loop permutation and loop fusion where applicable, as these transformations can significantly impact the performance on hardware accelerators. Loop tiling and distribution are hinted at with the pragmas already in place, suggesting that the HLS tool is expected to handle some of this automatically with the "auto" factor.
+// Given the structure of the loops and the operations performed within them, loop fusion seems immediately applicable to the two innermost loops iterating over `p`. Loop tiling could be beneficial for the `r` and `q` loops, but given the fixed sizes and the nature of the operations (which involve reductions across one dimension), the biggest gains might come from loop fusion and possibly loop permutation.
 // 
-// Here's the transformed code:
+// Here's an optimized version of the code with explanations for each transformation:
 #pragma ACCEL kernel
 
 void kernel_doitgen(int nr, int nq, int np, double A[25][20][30], double C4[30][30], double sum[30]) {
   int r, q, p, s;
 
-  //#pragma scop
-
-  // Loop permutation is applied here to bring the 's' loop outside.
-  // This could potentially improve data locality for accesses to C4 and sum.
-  // However, due to dependencies, we need to be careful with the transformation.
-  // The original code's logic must be preserved, especially the accumulation in sum[p].
-  // Given the dependencies, a direct loop permutation isn't straightforward without altering the logic.
-  // We'll focus on optimizing the given structure with HLS pragmas and potential loop fusion.
-
-#pragma ACCEL PIPELINE auto{__PIPE__L0}
-#pragma ACCEL TILE FACTOR=auto{__TILE__L0}
+  #pragma ACCEL PIPELINE auto{__PIPE__L0}
+  #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
   for (r = 0; r < 25; r++) {
-#pragma ACCEL PIPELINE auto{__PIPE__L1}
-#pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+    
+    #pragma ACCEL PIPELINE auto{__PIPE__L1}
+    #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
     for (q = 0; q < 20; q++) {
-#pragma ACCEL PIPELINE auto{__PIPE__L2}
-#pragma ACCEL TILE FACTOR=auto{__TILE__L2}
+      
+      // Loop Fusion: Combining the computation and update of A[r][q][p] into a single loop over 'p'
+      #pragma ACCEL PIPELINE auto{__PIPE__L2}
+      #pragma ACCEL TILE FACTOR=auto{__TILE__L2}
       for (p = 0; p < 30; p++) {
         sum[p] = 0.0;
         for (s = 0; s < 30; s++) {
           sum[p] += A[r][q][s] * C4[s][p];
         }
-      }
-      // Loop fusion could be applied here by merging this loop with the previous one,
-      // but due to the dependency on the completion of the 's' loop for each 'p',
-      // it's more efficient to keep them separate for clarity and correctness.
-      for (p = 0; p < 30; p++) {
-        A[r][q][p] = sum[p];
+        A[r][q][p] = sum[p]; // Move the update of A inside the loop over 'p'
       }
     }
   }
-  //#pragma endscop
 }
-// Rationale behind not applying certain transformations directly:
-// - **Loop Permutation**: The original loop nest has dependencies that make it challenging to permute loops without altering the program's semantics. Specifically, the accumulation in `sum[p]` depends on the completion of the innermost loop.
-// - **Loop Tiling and Distribution**: The pragmas suggest that the HLS tool will handle aspects of tiling and distribution. Explicitly rewriting the loops for tiling or distribution without a deeper understanding of the target architecture could lead to suboptimal performance.
-// - **Loop Fusion**: The separation between the computation of `sum[p]` and the assignment to `A[r][q][p]` is necessary due to the dependency on the full computation of `sum[p]`. Fusing these loops without additional buffering or a change in logic could lead to incorrect results.
+// **Rationale for Transformations:**
 // 
-// In summary, the provided code is already structured to hint at significant optimizations through HLS pragmas. Direct code transformations must be carefully considered to avoid altering the program's logic or introducing inefficiencies.
+// - **Loop Fusion**: The original code had two separate loops iterating over `p` with the same bounds. The first loop was calculating `sum[p]`, and the second loop was updating `A[r][q][p]` with the value of `sum[p]`. By fusing these loops, we reduce the number of iterations from 2x30 to 1x30 for each combination of `r` and `q`, which can decrease the overhead of loop control and improve data locality since `sum[p]` is used immediately after it's computed. This transformation should help reduce the accumulated cycles (AC) and cycles per call (CPC) by reducing the overhead and potentially increasing data locality.
+// 
+// - **Loop Permutation and Tiling**: Given the access patterns and the operations performed, loop permutation was considered but not applied, as the original loop order seems to be optimal for the given computation (reduction across `s` and then updating `A[r][q][p]`). Loop tiling was also considered, but without specific cache size details and more complex access patterns, it's hard to apply effectively without empirical testing. The `#pragma ACCEL TILE` directives suggest that the compiler or HLS tool might already be applying some form of automatic tiling or partitioning based on the `auto` factor, which could be further tuned if specific performance bottlenecks were identified.
+// 
+// These transformations aim to maintain or improve the performance characteristics of the original code while potentially reducing the total accumulated cycles and improving efficiency for High-Level Synthesis.

@@ -1,76 +1,81 @@
-// To optimize the provided C code for High-Level Synthesis (HLS), we'll apply several code transformations focusing on improving parallelism, data locality, and reducing memory access latencies. The transformations include loop permutation, loop tiling, and loop distribution. These optimizations aim to make better use of hardware resources and improve the overall performance of the synthesized hardware.
+// Based on the performance estimates provided, the most time-consuming parts of the code are the two nested loops for updating `x` and `w`. Both of these loops consume approximately 44.5% of the total execution time each. To optimize this code for High-Level Synthesis (HLS), we can apply several code transformations focusing on these critical parts. Loop tiling can be particularly effective in improving data locality and cache usage, which might reduce the execution time. Loop permutation might also be beneficial if it aligns better with memory access patterns. Given that the performance bottleneck is primarily due to these loops, focusing on them would yield the most significant performance improvements.
 // 
-// ### Original Code Analysis
-// The original code performs a series of matrix and vector operations. The use of `#pragma ACCEL` hints at targeting acceleration through parallelism and other hardware optimizations. However, the code can be further optimized for HLS by restructuring loops and data access patterns.
-// 
-// ### Transformations Applied
-// 
-// 1. **Loop Tiling**: Applied to the first and third nested loops to improve cache locality and enable more efficient use of on-chip memory. Tiling breaks down large matrices into smaller sub-matrices, allowing for more efficient data access patterns.
-// 
-// 2. **Loop Permutation**: Applied to the second loop to change the order of loop nesting. This is done to match the memory access pattern with the most common data layout in memory (row-major order in C), reducing cache misses.
-// 
-// 3. **Loop Distribution**: Applied to separate different operations within the same loop into multiple loops. This can help in reducing loop-carried dependencies and enabling more parallelism.
-// 
-// ### Transformed Code
+// Here is the transformed code with explanations for each transformation applied:
 #pragma ACCEL kernel
 
-void kernel_gemver(int n, double alpha, double beta, double A[120][120], double u1[120], double v1[120], double u2[120], double v2[120], double w[120], double x[120], double y[120], double z[120]) {
-    int i, j, ii, jj;
-    const int TILE_SIZE = 30; // Example tile size, can be tuned for specific hardware
+void kernel_gemver_optimized(int n,double alpha,double beta,double A[120][120],double u1[120],double v1[120],double u2[120],double v2[120],double w[120],double x[120],double y[120],double z[120])
+{
+  int i, j, ii, jj;
+  int TILE_SIZE = 30; // Example tile size, this can be tuned for specific architectures.
 
 #pragma scop
 
-    // Loop Tiling for A matrix update
 #pragma ACCEL PIPELINE auto{__PIPE__L0}
+  
 #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
+  
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-    for (ii = 0; ii < 120; ii += TILE_SIZE) {
-        for (jj = 0; jj < 120; jj += TILE_SIZE) {
+  for (i = 0; i < 120; i += TILE_SIZE) {
+    for (j = 0; j < 120; j += TILE_SIZE) {
+      
 #pragma ACCEL PARALLEL reduction=A FACTOR=auto{__PARA__L4}
-            for (i = ii; i < min(ii + TILE_SIZE, 120); i++) {
-                for (j = jj; j < min(jj + TILE_SIZE, 120); j++) {
-                    A[i][j] += u1[i] * v1[j] + u2[i] * v2[j];
-                }
-            }
+      for (ii = i; ii < i + TILE_SIZE; ii++) {
+        for (jj = j; jj < j + TILE_SIZE; jj++) {
+          A[ii][jj] += u1[ii] * v1[jj] + u2[ii] * v2[jj];
         }
+      }
     }
+  }
 
-    // Loop Permutation for x vector update
 #pragma ACCEL PIPELINE auto{__PIPE__L1}
+  
 #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+  
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-    for (j = 0; j < 120; j++) {
+  for (i = 0; i < 120; i += TILE_SIZE) {
+    for (j = 0; j < 120; j += TILE_SIZE) {
+      
 #pragma ACCEL PARALLEL reduction=x FACTOR=auto{__PARA__L5}
-        for (i = 0; i < 120; i++) {
-            x[i] += beta * A[j][i] * y[j];
+      for (ii = i; ii < i + TILE_SIZE; ii++) {
+        for (jj = j; jj < j + TILE_SIZE; jj++) {
+          x[ii] += beta * A[jj][ii] * y[jj];
         }
+      }
     }
+  }
 
-    // Direct loop for x vector final update
 #pragma ACCEL PARALLEL reduction=x FACTOR=auto{__PARA__L2}
-    for (i = 0; i < 120; i++) {
-        x[i] += z[i];
-    }
+  for (i = 0; i < 120; i++) {
+    x[i] +=  z[i];
+  }
 
-    // Loop Tiling for w vector update
 #pragma ACCEL PIPELINE auto{__PIPE__L3}
+  
 #pragma ACCEL TILE FACTOR=auto{__TILE__L3}
+  
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L3}
-    for (ii = 0; ii < 120; ii += TILE_SIZE) {
+  for (i = 0; i < 120; i += TILE_SIZE) {
+    for (j = 0; j < 120; j += TILE_SIZE) {
+      
 #pragma ACCEL PARALLEL reduction=w FACTOR=auto{__PARA__L6}
-        for (i = ii; i < min(ii + TILE_SIZE, 120); i++) {
-            for (j = 0; j < 120; j++) {
-                w[i] += alpha * A[i][j] * x[j];
-            }
+      for (ii = i; ii < i + TILE_SIZE; ii++) {
+        for (jj = j; jj < j + TILE_SIZE; jj++) {
+          w[ii] += alpha * A[ii][jj] * x[jj];
         }
+      }
     }
+  }
 
 #pragma endscop
 }
-// ### Rationale Behind Transformations
+// ### Rationale Behind Transformations:
 // 
-// - **Loop Tiling**: Improves data locality by working on smaller sub-matrices that fit into the cache, reducing memory access times and improving parallelism opportunities.
-// - **Loop Permutation**: Aligns the loop order with the data's memory layout, reducing cache misses and improving memory access patterns.
-// - **Loop Distribution**: Separates different computations into distinct loops, reducing dependencies and enabling more parallel execution.
+// 1. **Loop Tiling**: Applied to all the nested loops to improve cache locality. By working on smaller sub-matrices (tiles) at a time, it's more likely that the data accessed by the operations within a tile will remain in cache between accesses, reducing the number of cache misses and thus improving performance.
 // 
-// These transformations aim to optimize the code for HLS by improving parallelism, reducing memory access latencies, and making better use of hardware resources.
+// 2. **Loop Order**: The original order of loops is preserved because the primary transformations are focused on loop tiling, which doesn't necessitate changing the loop order. However, careful consideration was given to ensure that the innermost loops access memory in a pattern that is as contiguous as possible, which is beneficial for memory access efficiency.
+// 
+// 3. **Preservation of Pragmas**: All original pragmas have been preserved and applied to the outer loops of the tiled versions. This ensures that the compiler's directives for parallelization, pipelining, and other optimizations are still considered during HLS.
+// 
+// 4. **Tile Size**: The `TILE_SIZE` is a parameter that can be tuned based on the target architecture's cache size and other characteristics. A size of 30 is chosen as an example, but this would ideally be determined through empirical testing and optimization for a specific hardware target.
+// 
+// These transformations aim to reduce the execution time by improving data locality and making better use of the hardware's cache and parallel execution capabilities. However, the actual performance improvement would need to be verified through synthesis and testing on the target hardware.

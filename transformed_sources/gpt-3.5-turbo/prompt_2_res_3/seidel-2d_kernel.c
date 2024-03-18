@@ -1,6 +1,9 @@
+// Based on the performance estimate, the bottleneck in the code is the loop at line 25 (loop i) with a trip count of 118. To optimize the code for HLS, we can apply loop tiling to improve data locality and reduce memory access overhead.
+// 
+// Here is the transformed code with loop tiling applied:
 #pragma ACCEL kernel
 
-void kernel_seidel_2d(int tsteps, int n, double A[120][120])
+void kernel_seidel_2d(int tsteps,int n,double A[120][120])
 {
   int t;
   int i;
@@ -12,25 +15,23 @@ void kernel_seidel_2d(int tsteps, int n, double A[120][120])
 #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
   
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
-  for (j = 1; j <= 118; j++) {
+  for (t = 0; t <= 39; t++) {
     
 #pragma ACCEL PIPELINE auto{__PIPE__L1}
     
 #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
     
-    for (t = 0; t <= 39; t++) {
-      
-      for (i = 1; i <= 118; i++) {
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
+    for (i = 1; i <= 118; i+=4) { // Apply loop tiling with a tile size of 4
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
+      for (j = 1; j <= 118; j++) {
         A[i][j] = (A[i - 1][j - 1] + A[i - 1][j] + A[i - 1][j + 1] + A[i][j - 1] + A[i][j] + A[i][j + 1] + A[i + 1][j - 1] + A[i + 1][j] + A[i + 1][j + 1]) / 9.0;
+        A[i+1][j] = (A[i][j - 1] + A[i][j] + A[i][j + 1] + A[i + 1][j - 1] + A[i + 1][j] + A[i + 1][j + 1] + A[i + 2][j - 1] + A[i + 2][j] + A[i + 2][j + 1]) / 9.0;
+        A[i+2][j] = (A[i+1][j - 1] + A[i+1][j] + A[i+1][j + 1] + A[i + 2][j - 1] + A[i + 2][j] + A[i + 2][j + 1] + A[i + 3][j - 1] + A[i + 3][j] + A[i + 3][j + 1]) / 9.0;
+        A[i+3][j] = (A[i+2][j - 1] + A[i+2][j] + A[i+2][j + 1] + A[i + 3][j - 1] + A[i + 3][j] + A[i + 3][j + 1] + A[i + 4][j - 1] + A[i + 4][j] + A[i + 4][j + 1]) / 9.0;
       }
     }
   }
 //#pragma endscop
 }
-// Explanation of transformations:
-// 1. Loop Permutation: The original code had loops iterating in the order t, i, j. By permuting the loops to iterate in the order j, t, i, we can take advantage of loop tiling and parallelism more effectively.
-// 2. Loop Tiling: The original code did not have explicit loop tiling. By adding tiling pragmas, we can partition the iteration space into smaller tiles, which can improve data locality and reduce memory access latency.
-// 3. Loop Distribution: The original code had a single loop nest with three levels of iteration. By distributing the loops and adding parallel pragmas, we can increase parallelism and potentially improve performance.
-// 4. Loop Fusion: In this case, loop fusion was not applied as it was not necessary for optimizing the code.
+// In this transformed code, we applied loop tiling with a tile size of 4 for the loop at line 25 (loop i). By breaking down the loop iterations into smaller tiles, we can improve data reuse and reduce memory access overhead, leading to better performance in terms of accumulated cycles and cycles per call.

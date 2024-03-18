@@ -1,60 +1,65 @@
-// To optimize the provided C code for High-Level Synthesis (HLS), we can apply several code transformations. These transformations aim to improve parallelism, data locality, and resource utilization when the code is synthesized to hardware. Below is the transformed code with explanations for each transformation applied:
+// Based on the performance estimates provided in the `merlin.rpt` file, the most time-consuming part of the `kernel_covariance` function is the nested loop structure starting at `loop i (cnn-krnl.cpp:44)`. This loop and its nested loops account for approximately 98.5% of the accumulated cycles. To optimize this code for High-Level Synthesis (HLS), we should focus on this part of the code, applying transformations such as loop permutation, loop tiling, loop distribution, or loop fusion, while considering the impact on trip count (TC), accumulated cycles (AC), and cycles per call (CPC).
+// 
+// Here's a transformed version of the code with explanations for each transformation:
 #pragma ACCEL kernel
 
-void kernel_covariance(int m, int n, double float_n, double data[100][80], double cov[80][80], double mean[80]) {
-  int i, j, k;
+void kernel_covariance(int m,int n,double float_n,double data[100][80],double cov[80][80],double mean[80])
+{
+  int i;
+  int j;
+  int k;
 
-  // Loop tiling is not explicitly applied here due to the nature of the computation,
-  // but loop interchange and loop fusion techniques are considered for optimization.
-
-  // Calculate mean
-#pragma ACCEL PIPELINE auto{__PIPE__L0}
+  // Original pragmas preserved as requested
+  #pragma ACCEL PIPELINE auto{__PIPE__L0}
+  #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
+  #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
   for (j = 0; j < 80; j++) {
     mean[j] = 0.0;
-#pragma ACCEL PARALLEL reduction=mean FACTOR=auto{__PARA__L3}
+    
+    #pragma ACCEL PARALLEL reduction=mean FACTOR=auto{__PARA__L3}
     for (i = 0; i < 100; i++) {
       mean[j] += data[i][j];
     }
     mean[j] /= float_n;
   }
 
-  // Subtract mean from data elements
-#pragma ACCEL PIPELINE auto{__PIPE__L1}
+  #pragma ACCEL PIPELINE auto{__PIPE__L1}
+  #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+  #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
   for (i = 0; i < 100; i++) {
-#pragma ACCEL PARALLEL reduction=data FACTOR=auto{__PARA__L4}
+    
+    #pragma ACCEL PARALLEL reduction=data FACTOR=auto{__PARA__L4}
     for (j = 0; j < 80; j++) {
       data[i][j] -= mean[j];
     }
   }
 
-  // Compute covariance matrix
-#pragma ACCEL PIPELINE auto{__PIPE__L2}
-  for (i = 0; i < 80; i++) {
-#pragma ACCEL PIPELINE auto{__PIPE__L5}
-    for (j = i; j < 80; j++) {
+  // Loop permutation applied to improve data locality and cache usage
+  #pragma ACCEL PIPELINE auto{__PIPE__L2}
+  #pragma ACCEL TILE FACTOR=auto{__TILE__L2}
+  #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
+  for (j = 0; j < 80; j++) {
+    for (i = j; i < 80; i++) {
       cov[i][j] = 0.0;
-#pragma ACCEL PARALLEL reduction=cov FACTOR=auto{__PARA__L6}
+
+      #pragma ACCEL PIPELINE auto{__PIPE__L5}
+      #pragma ACCEL PARALLEL reduction=cov FACTOR=auto{__PARA__L6}
       for (k = 0; k < 100; k++) {
         cov[i][j] += data[k][i] * data[k][j];
       }
       cov[i][j] /= float_n - 1.0;
-      // Symmetric assignment optimized by removing redundant computation
       if (i != j) {
         cov[j][i] = cov[i][j];
       }
     }
   }
 }
-// ### Rationale Behind Transformations
+// ### Rationale for Transformations:
 // 
-// 1. **Loop Interchange**: The original code structure is preserved because the primary goal is to optimize for parallel execution and data access patterns suitable for hardware synthesis. Loop interchange could be considered if there were a clear benefit in changing the loop nesting order to improve data locality or parallelism, but in this case, the original order is suitable for the operations being performed.
+// 1. **Loop Permutation**: The original code computes `cov[i][j]` and then immediately assigns `cov[j][i] = cov[i][j]`. By permuting the loops for `i` and `j` in the covariance calculation, we ensure that when `cov[i][j]` is computed, `cov[j][i]` is also computed in the same or adjacent iterations, improving spatial locality and potentially cache hit rates. This change also avoids redundant computations.
 // 
-// 2. **Loop Fusion**: This technique is not directly applied here as the operations performed in each loop are distinct (calculating means, normalizing data, and computing covariance). Fusing loops would not make sense in this context since they operate on different data in different ways.
+// 2. **Maintained Pragmas**: All original pragmas are preserved to ensure that compiler directives for parallelization, pipelining, and tiling are still considered by the HLS tool. These pragmas are crucial for informing the HLS tool about potential parallelism and optimization opportunities.
 // 
-// 3. **Loop Tiling**: Not applied because the loops do not exhibit the kind of nested iteration over a single data structure that would benefit from tiling. Tiling is most beneficial when working with large matrices where sub-portions of the matrix can be loaded into faster, local memory. Here, the operations are relatively simple and do not access large blocks of data in a manner that would benefit from tiling.
+// 3. **Loop Fusion/Distribution**: No loop fusion or distribution was applied in this transformation as the primary focus was on loop permutation. However, these techniques could be considered in further optimizations, especially if there are independent operations within loops that could benefit from being merged (fusion) or if separating complex loops into simpler, separate loops (distribution) could improve readability, parallelism, or data locality.
 // 
-// 4. **Parallelism and Pipelining**: The `#pragma ACCEL` directives are used to hint at potential parallelism and pipelining opportunities. The `PARALLEL` pragma with `reduction` is used to indicate that loop iterations can be executed in parallel with a reduction operation at the end (useful for summing values). The `PIPELINE` pragma is used to suggest that operations within loops can be pipelined, allowing for a new iteration to start before the previous one has completed, improving throughput.
-// 
-// 5. **Symmetric Assignment Optimization**: The assignment `cov[j][i] = cov[i][j]` is moved inside a conditional check to avoid redundant computation when `i == j`. This minor optimization reduces the number of assignments by a small margin but can contribute to overall efficiency.
-// 
-// These transformations and optimizations aim to make the code more suitable for HLS by improving parallelism, reducing unnecessary computations, and suggesting pipelining opportunities to the HLS tool.
+// This transformed code aims to optimize the performance by focusing on the most time-consuming parts of the function, as identified in the provided performance estimates, while maintaining the original parallelization and optimization directives provided by the pragmas.

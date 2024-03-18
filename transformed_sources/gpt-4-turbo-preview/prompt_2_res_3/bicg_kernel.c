@@ -1,51 +1,59 @@
-// To optimize the given code for High-Level Synthesis (HLS), we can apply several transformations such as loop permutation, loop tiling, loop distribution, and loop fusion. However, it's important to note that the original code already includes directives for parallelization, pipelining, and tiling, which are specific to the HLS tool being used (indicated by `#pragma ACCEL`). These directives suggest that the compiler should already optimize parallel execution and memory access patterns. Despite this, we can still explore manual code transformations for educational purposes, keeping in mind that the effectiveness of these transformations heavily depends on the specific HLS tool and target hardware architecture.
+// Given the performance estimates, the primary target for optimization is the nested loop structure at `cnn-krnl.cpp:20` and `cnn-krnl.cpp:24`, which accounts for the majority of the accumulated cycles (90.9% for the outer loop and 89.7% for the inner loop). The high pipeline initiation interval (II=5) in the inner loop suggests that there is room for improvement in data access and computational efficiency. To address this, we can apply loop tiling to improve data locality and possibly reduce the initiation interval. Additionally, loop distribution can be applied to separate the accumulation operations on `s[j]` and `q[i]`, which may allow for more efficient pipelining and parallelization.
 // 
-// Below is the transformed code with explanations for each transformation applied:
+// Here's the transformed code with explanations for each transformation:
 #pragma ACCEL kernel
 
-void kernel_bicg(int m, int n, double A[124][116], double s[116], double q[124], double p[116], double r[124])
+void kernel_bicg_optimized(int m,int n,double A[124][116],double s[116],double q[124],double p[116],double r[124])
 {
-    int i, j;
+  int i, j, ii, jj;
+  int TILE_SIZE_I = 62; // Assuming a tile size that fits well into local memory and cache
+  int TILE_SIZE_J = 58; // Adjust based on cache size and experiment for best performance
 
-    // Initialize 's' array
-    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-    for (i = 0; i < 116; i++) {
-        s[i] = ((double)0);
-    }
+  // Initialize 's' array
+  #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
+  for (i = 0; i < 116; i++) {
+    s[i] = ((double )0);
+  }
 
-    // Loop distribution applied here to separate the operations on 's' and 'q'
-    // This allows for more focused optimizations on each loop
+  // Initialize 'q' array
+  #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
+  for (i = 0; i < 124; i++) {
+    q[i] = 0.0;
+  }
 
-    // First loop for updating 'q'
-    #pragma ACCEL PIPELINE auto{__PIPE__L1}
-    #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
-    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-    for (i = 0; i < 124; i++) {
-        q[i] = 0.0;
+  // Apply loop tiling for improved data locality
+  #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+  for (ii = 0; ii < 124; ii += TILE_SIZE_I) {
+    for (jj = 0; jj < 116; jj += TILE_SIZE_J) {
+      
+      // Apply loop distribution to separate the operations on 's' and 'q'
+      // First operation on 's'
+      #pragma ACCEL PIPELINE auto{__PIPE__L1}
+      for (i = ii; i < min(124, ii + TILE_SIZE_I); i++) {
         #pragma ACCEL PARALLEL reduction FACTOR=auto{__PARA__L2}
-        for (j = 0; j < 116; j++) {
-            q[i] += A[i][j] * p[j];
+        for (j = jj; j < min(116, jj + TILE_SIZE_J); j++) {
+          s[j] += r[i] * A[i][j];
         }
-    }
+      }
 
-    // Second loop for updating 's'
-    // Loop permutation applied here to improve memory access pattern
-    #pragma ACCEL PIPELINE auto{__PIPE__L2}
-    #pragma ACCEL TILE FACTOR=auto{__TILE__L2}
-    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L3}
-    for (j = 0; j < 116; j++) {
-        #pragma ACCEL PARALLEL reduction FACTOR=auto{__PARA__L4}
-        for (i = 0; i < 124; i++) {
-            s[j] += r[i] * A[i][j];
+      // Second operation on 'q'
+      #pragma ACCEL PIPELINE auto{__PIPE__L2}
+      for (i = ii; i < min(124, ii + TILE_SIZE_I); i++) {
+        #pragma ACCEL PARALLEL reduction FACTOR=auto{__PARA__L3}
+        for (j = jj; j < min(116, jj + TILE_SIZE_J); j++) {
+          q[i] += A[i][j] * p[j];
         }
+      }
     }
+  }
 }
-// ### Rationale Behind Transformations
+
+// ### Rationale Behind Transformations:
 // 
-// 1. **Loop Distribution**: The original loop that updates both `s` and `q` arrays is split into two separate loops. This allows each loop to be optimized independently, potentially improving the efficiency of memory access patterns and parallelization opportunities. Loop distribution is particularly useful when dealing with loops that perform multiple, independent operations.
+// 1. **Loop Tiling**: Applied to both `i` and `j` loops to improve cache utilization and data locality. This should help in reducing the memory access time for the arrays `A`, `r`, and `p`, which are accessed multiple times across iterations.
 // 
-// 2. **Loop Permutation**: For the loop updating the `s` array, we permute the loop order. This transformation is applied to improve spatial locality and cache behavior, as it ensures that memory accesses to `A` and `s` are more sequential. Loop permutation is beneficial when accessing multi-dimensional arrays where the order of accesses can significantly impact performance due to cache hierarchies.
+// 2. **Loop Distribution**: Separates the updates to `s[j]` and `q[i]` into two distinct loops. This transformation is aimed at simplifying the loop body, which can help in achieving better pipelining and parallelization by the HLS tool. It also allows for more focused optimization on each operation.
 // 
-// 3. **Maintaining HLS Pragmas**: All original HLS-specific pragmas (`#pragma ACCEL`) are kept intact. These pragmas provide hints to the HLS compiler for parallelization (`PARALLEL`), pipelining (`PIPELINE`), and tiling (`TILE`). The effectiveness of manual code transformations must be evaluated in conjunction with these pragmas, as the HLS tool uses them to make hardware-specific optimizations.
+// 3. **Preservation of Original Pragmas**: The original pragmas for parallelization, pipelining, and tiling have been preserved and adapted to the transformed code structure. The `FACTOR=auto` directives are kept to let the HLS tool automatically determine the best factor for parallelization and tiling based on the transformed loop structure.
 // 
-// It's important to note that the effectiveness of these transformations depends on the target FPGA architecture and the specifics of the HLS toolchain. Additionally, thorough testing and performance evaluation are essential to ensure that the transformations lead to the desired performance improvements without introducing bugs.
+// By applying these transformations, we aim to reduce the accumulated cycles and improve the cycles per call by enhancing data locality, reducing memory access delays, and enabling more efficient parallel execution. The exact improvement would need to be verified by synthesizing the transformed code and comparing the new performance estimates.

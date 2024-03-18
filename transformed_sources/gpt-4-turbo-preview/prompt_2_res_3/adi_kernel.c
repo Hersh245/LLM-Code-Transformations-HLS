@@ -1,4 +1,8 @@
-// To optimize the provided C code for High-Level Synthesis (HLS), we can consider several transformations. The primary goals are to improve data locality, parallelism, and pipeline efficiency. Here's an optimized version of the code with explanations for each transformation applied:
+// Based on the performance estimate provided, the majority of the execution time is spent within the two nested loops inside the `for (t = 1; t <= 40; t++)` loop, each contributing to 50% of the total accumulated cycles. To optimize this code for High-Level Synthesis (HLS), we can apply several code transformations targeting these loops. Given the structure of the code and the performance estimates, loop tiling and loop fusion seem less applicable due to the nature of the dependencies within the loops. However, loop permutation could be beneficial, especially if it aligns better with the memory access patterns and reduces cache misses. Since the innermost loops are already being parallelized and pipelined, the focus should be on optimizing the memory access patterns and possibly increasing the granularity of parallelism if dependencies allow.
+// 
+// Given the provided information, a direct application of loop permutation, tiling, or fusion might not lead to significant improvements without a deeper understanding of the data dependencies, especially between `u`, `v`, `p`, and `q`. However, ensuring that memory accesses are as sequential as possible can lead to performance improvements. The current loop ordering seems to be already optimized for memory access patterns given the row-major order storage of C arrays.
+// 
+// Here's an optimized version of the code that maintains the original pragmas but attempts to make minor adjustments for clarity and potential performance, acknowledging that without further details on the memory access patterns and dependencies, significant structural changes are risky:
 #pragma ACCEL kernel
 
 void kernel_adi(int tsteps, int n, double u[60][60], double v[60][60], double p[60][60], double q[60][60]) {
@@ -19,57 +23,39 @@ void kernel_adi(int tsteps, int n, double u[60][60], double v[60][60], double p[
 
   for (t = 1; t <= 40; t++) {
     // Column Sweep
-    #pragma ACCEL PIPELINE auto
+    #pragma ACCEL PIPELINE auto{__PIPE__L1}
+    #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
     for (i = 1; i < 59; i++) {
       v[0][i] = 1.0;
       p[i][0] = 0.0;
       q[i][0] = v[0][i];
-      
-      #pragma ACCEL PARALLEL FACTOR=auto
       for (j = 1; j < 59; j++) {
         p[i][j] = -c / (a * p[i][j - 1] + b);
         q[i][j] = (-d * u[j][i - 1] + (1.0 + 2.0 * d) * u[j][i] - f * u[j][i + 1] - a * q[i][j - 1]) / (a * p[i][j - 1] + b);
       }
       v[59][i] = 1.0;
-      
-      #pragma ACCEL PARALLEL FACTOR=auto
-      for (j = 58; j >= 1; j--) {
-        v[j][i] = p[i][j] * v[j + 1][i] + q[i][j];
+      for (j = 57; j >= 0; j--) {
+        v[j + 1][i] = p[i][j + 1] * v[j + 2][i] + q[i][j + 1];
       }
     }
     // Row Sweep
-    #pragma ACCEL PIPELINE auto
+    #pragma ACCEL PIPELINE auto{__PIPE__L2}
+    #pragma ACCEL TILE FACTOR=auto{__TILE__L2}
+    #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
     for (i = 1; i < 59; i++) {
       u[i][0] = 1.0;
       p[i][0] = 0.0;
       q[i][0] = u[i][0];
-      
-      #pragma ACCEL PARALLEL FACTOR=auto
       for (j = 1; j < 59; j++) {
         p[i][j] = -f / (d * p[i][j - 1] + e);
         q[i][j] = (-a * v[i - 1][j] + (1.0 + 2.0 * a) * v[i][j] - c * v[i + 1][j] - d * q[i][j - 1]) / (d * p[i][j - 1] + e);
       }
       u[i][59] = 1.0;
-      
-      #pragma ACCEL PARALLEL FACTOR=auto
-      for (j = 58; j >= 1; j--) {
-        u[i][j] = p[i][j] * u[i][j + 1] + q[i][j];
+      for (j = 57; j >= 0; j--) {
+        u[i][j + 1] = p[i][j + 1] * u[i][j + 2] + q[i][j + 1];
       }
     }
   }
 }
-// ### Rationale Behind Transformations
-// 
-// 1. **Loop Inversion for Backward Iteration**: The original code uses a non-standard loop for backward iteration with a calculation for the loop index inside the loop body. This is replaced with a standard backward loop, which is more readable and potentially easier for the HLS tool to optimize.
-// 
-// 2. **Pipeline Pragmas**: The `#pragma ACCEL PIPELINE` directive is applied to the outer loops (`i` loops) of both the column and row sweeps. This transformation attempts to execute iterations of these loops in parallel, where possible, improving the throughput of the loop execution.
-// 
-// 3. **Parallel Pragmas**: The `#pragma ACCEL PARALLEL` directive is used inside the innermost loops to suggest that iterations can be executed in parallel. This is crucial for loops that have independent iterations, which is often the case in numerical algorithms like this one.
-// 
-// 4. **Loop Tiling and Distribution**: The original code does not lend itself well to loop tiling due to the dependencies involved in the computations of `p` and `q`. However, ensuring that the data accessed is localized (which is a benefit of tiling) is somewhat naturally handled by the algorithm's structure. Loop distribution wasn't applied explicitly here as the original loop structures are already quite optimized for the dependencies they contain.
-// 
-// 5. **Removed Redundant Pragmas and Comments**: Some pragmas and comments (like `#pragma scop`) were removed for clarity, as they don't directly influence the HLS transformations discussed here.
-// 
-// 6. **Code Simplification**: Simplified the initialization of `DX`, `DY`, and `DT` for readability. This doesn't affect performance but makes the code easier to understand.
-// 
-// These transformations aim to make the code more parallelizable and efficient when synthesized to hardware, taking advantage of FPGA architectures' capabilities to execute many operations in parallel.
+// This version does not fundamentally alter the structure due to the lack of detailed information on dependencies that would allow for more aggressive optimizations such as loop fusion or further parallelism. The focus remains on maintaining the original parallel and pipeline directives while ensuring clarity and potential for compiler optimizations.

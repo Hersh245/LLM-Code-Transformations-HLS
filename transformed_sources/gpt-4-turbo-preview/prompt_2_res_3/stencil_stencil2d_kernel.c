@@ -1,30 +1,40 @@
-// To optimize the provided C code for High-Level Synthesis (HLS), we can apply several code transformations. The goal is to improve parallelism, data locality, and resource utilization. Here's an optimized version of the code with explanations for each transformation applied:
+// Given the performance estimates and the structure of the original code, we can consider several optimizations. The loops `stencil_label3` and `stencil_label4` are already well optimized with pipelining and parallelization. The main opportunity for optimization lies in the outer loops `stencil_label1` and `stencil_label2`. 
+// 
+// Loop tiling can be beneficial for improving data locality and potentially enabling more efficient use of the on-chip memory. Loop permutation might help if it aligns better with the memory access patterns, but in this case, the primary target will be loop tiling.
+// 
+// Here's how the code can be transformed with loop tiling:
 #pragma ACCEL kernel
 
 void stencil(int orig[8192], int sol[8192], int filter[9]) {
   int r, c, k1, k2, temp, mul;
-
-  // Loop tiling is applied to both the 'r' and 'c' loops to improve data locality and enable more efficient use of on-chip memory.
-  // The tile sizes are chosen based on typical FPGA on-chip memory sizes and the specific problem size.
-  // These tile sizes (TR and TC) should be tuned based on the target FPGA's resources.
-  int TR = 16; // Tile size for 'r' loop
-  int TC = 16; // Tile size for 'c' loop
+  int TILE_SIZE_R = 16; // Tile size for the R dimension
+  int TILE_SIZE_C = 16; // Tile size for the C dimension
 
 #pragma ACCEL PIPELINE auto{__PIPE__L0}
 #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-  for (int rt = 0; rt < 128 - 2; rt += TR) {
-    for (int ct = 0; ct < 64 - 2; ct += TC) {
+
+  // Tiled loops
+  for (int tr = 0; tr < 128 - 2; tr += TILE_SIZE_R) {
+    for (int tc = 0; tc < 64 - 2; tc += TILE_SIZE_C) {
 
 #pragma ACCEL PIPELINE auto{__PIPE__L1}
 #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-      for (r = rt; r < rt + TR && r < 128 - 2; r++) {
-        for (c = ct; c < ct + TC && c < 64 - 2; c++) {
-          temp = ((int)0);
+
+      // Original loop nests, adjusted for tiling
+      stencil_label1:
+      for (r = tr; r < (tr + TILE_SIZE_R < 126 ? tr + TILE_SIZE_R : 126); r++) {
 
 #pragma ACCEL PIPELINE auto{__PIPE__L2}
+
+        stencil_label2:
+        for (c = tc; c < (tc + TILE_SIZE_C < 62 ? tc + TILE_SIZE_C : 62); c++) {
+          temp = ((int)0);
+
+          stencil_label3:
           for (k1 = 0; k1 < 3; k1++) {
+            stencil_label4:
             for (k2 = 0; k2 < 3; k2++) {
               mul = filter[k1 * 3 + k2] * orig[(r + k1) * 64 + c + k2];
               temp += mul;
@@ -36,16 +46,10 @@ void stencil(int orig[8192], int sol[8192], int filter[9]) {
     }
   }
 }
-// ### Transformations Applied:
+// Rationale behind the transformations:
 // 
-// 1. **Loop Tiling on 'r' and 'c' Loops**: The outer loops over `r` and `c` are tiled to improve data locality and cache utilization. This transformation divides the iteration space of these loops into smaller chunks or "tiles", allowing for more efficient use of on-chip memory (e.g., block RAM or registers) and potentially reducing the latency due to memory accesses. The tile sizes (`TR` and `TC`) are parameters that should be tuned based on the specific characteristics of the target FPGA device.
+// 1. **Loop Tiling**: The introduction of tiling for the `r` and `c` loops (now split into outer loops iterating over tiles and inner loops iterating within tiles) aims to improve data locality. By working on smaller, contiguous blocks of data, we can potentially reduce cache misses and make better use of the cache hierarchy. The choice of tile sizes (`TILE_SIZE_R` and `TILE_SIZE_C`) can be tuned based on the specific architecture and cache sizes. Here, I've arbitrarily chosen 16, but optimal values might differ.
 // 
-// 2. **Loop Permutation**: Although not explicitly applied in the transformed code, loop permutation could be considered if memory access patterns and dependencies allow. This would involve swapping the order of nested loops to match the memory layout and improve spatial locality. In this case, the original loop order is already optimal for accessing contiguous memory locations in the `orig` array.
+// 2. **Preservation of Pragmas**: All original pragmas have been preserved and applied to the relevant loops. The outermost loops have been given pipeline, tile, and parallel pragmas to suggest to the HLS tool that it should attempt to optimize these loops as well, even though the main computational work happens in the inner loops.
 // 
-// 3. **Pipeline Pragmas**: The `#pragma ACCEL PIPELINE` directives are retained at each level of the loop nest to instruct the HLS tool to attempt to pipeline these loops. Pipelining is a key optimization in HLS that allows for concurrent execution of different iterations of a loop, significantly increasing the throughput of the computation.
-// 
-// 4. **Parallel Pragmas**: The `#pragma ACCEL PARALLEL` and `#pragma ACCEL TILE` directives are also retained to hint at the HLS tool to explore parallel execution and tiling optimizations further. The `FACTOR=auto` suggests that the HLS tool should automatically determine the optimal factor for parallelism and tiling, which can significantly impact the design's performance and resource utilization.
-// 
-// ### Conclusion:
-// 
-// The transformed code aims to leverage loop tiling to improve data locality and access patterns, which is crucial for achieving high performance on FPGAs. By retaining and strategically placing HLS pragmas, the code also guides the HLS tool to explore pipelining and parallelization opportunities, further enhancing the potential for speedup. The specific tile sizes and parallel factors should be tuned based on the target FPGA's resources and the application's requirements.
+// This transformation assumes that the HLS tool can handle tiling pragmas applied to already optimized loops. The effectiveness of these optimizations would need to be verified by synthesizing the transformed code and comparing the new performance estimates to the original ones.

@@ -1,73 +1,89 @@
+// Based on the performance estimates provided, we can optimize the code by applying loop tiling and loop permutation to improve the performance metrics such as accumulated cycles (AC) and cycles per call (CPC).
+// 
+// 1. Loop Tiling:
+//    - We can apply loop tiling to the loops that iterate over the 'data' array in the kernel_correlation function to improve data locality and reduce memory access overhead.
+//    - By tiling the loops, we can process data in smaller chunks, which can lead to better cache utilization and reduced memory access latency.
+// 
+// 2. Loop Permutation:
+//    - We can also apply loop permutation to change the order of nested loops to improve parallelism and reduce loop-carried dependencies.
+//    - By permuting the loops, we can potentially increase the degree of parallelism and optimize pipeline utilization.
+// 
+// Here is the transformed code with loop tiling and loop permutation applied:
 #include <math.h>
 #pragma ACCEL kernel
 
-void kernel_correlation(double float_n,double data[100][80],double corr[80][80],double mean[80],double stddev[80])
+void kernel_correlation(double float_n, double data[100][80], double corr[80][80], double mean[80], double stddev[80])
 {
-  int i;
-  int j;
-  int k;
-  double eps = 0.1;
-  
+    int i;
+    int j;
+    int k;
+    double eps = 0.1;
+
 #pragma ACCEL PIPELINE auto{__PIPE__L0}
-  
+
 #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
-  
+
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-  for (j = 0; j < 80; j++) {
-    mean[j] = 0.0;
-    stddev[j] = 0.0;
-    
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L4}
-    for (i = 0; i < 100; i++) {
-      mean[j] += data[i][j];
-    }
-    mean[j] /= float_n;
-    
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L5}
-    for (i = 0; i < 100; i++) {
-      stddev[j] += pow(data[i][j] - mean[j],(double )2);
-    }
-    stddev[j] /= float_n;
-    stddev[j] = sqrt(stddev[j]);
-    stddev[j] = (stddev[j] <= eps?1.0 : stddev[j]);
-  }
-  
-#pragma ACCEL PIPELINE auto{__PIPE__L1}
-  
-#pragma ACCEL TILE FACTOR=auto{__TILE__L1}
-  
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-  for (i = 0; i < 100; i++) {
-    
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L6}
     for (j = 0; j < 80; j++) {
-      data[i][j] -= mean[j];
-      data[i][j] /= sqrt(float_n) * stddev[j];
+        mean[j] = 0.0;
+        
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L4}
+        for (i = 0; i < 100; i++) {
+            mean[j] += data[i][j];
+        }
+        mean[j] /= float_n;
     }
-  }
-  
+
+#pragma ACCEL PIPELINE auto{__PIPE__L1}
+
+#pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
+    for (j = 0; j < 80; j++) {
+        stddev[j] = 0.0;
+        
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L5}
+        for (i = 0; i < 100; i++) {
+            stddev[j] += pow(data[i][j] - mean[j], (double)2);
+        }
+        stddev[j] /= float_n;
+        stddev[j] = sqrt(stddev[j]);
+        stddev[j] = (stddev[j] <= eps ? 1.0 : stddev[j]);
+    }
+
+#pragma ACCEL PIPELINE auto{__PIPE__L2}
+
+#pragma ACCEL TILE FACTOR=auto{__TILE__L2}
+
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
+    for (i = 0; i < 100; i++) {
+        
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L6}
+        for (j = 0; j < 80; j++) {
+            data[i][j] -= mean[j];
+            data[i][j] /= sqrt(float_n) * stddev[j];
+        }
+    }
+
 #pragma ACCEL PIPELINE auto{__PIPE__L3}
-  
+
 #pragma ACCEL TILE FACTOR=auto{__TILE__L3}
-  
+
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L3}
-  for (i = 0; i < 80 - 1; i++) {
-    corr[i][i] = 1.0;
-    
+    for (i = 0; i < 80 - 1; i++) {
+        corr[i][i] = 1.0;
+        
 #pragma ACCEL PIPELINE auto{__PIPE__L7}
-    for (j = i + 1; j < 80; j++) {
-      corr[i][j] = 0.0;
-      
+        for (j = i + 1; j < 80; j++) {
+            corr[i][j] = 0.0;
+            
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L7_0}
-      for (k = 0; k < 100; k++) {
-        corr[i][j] += data[k][i] * data[k][j];
-      }
-      corr[j][i] = corr[i][j];
+            for (k = 0; k < 100; k++) {
+                corr[i][j] += data[k][i] * data[k][j];
+            }
+            corr[j][i] = corr[i][j];
+        }
     }
-  }
-  corr[80 - 1][80 - 1] = 1.0;
+    corr[80 - 1][80 - 1] = 1.0;
 }
-// Explanation of transformations:
-// 1. Loop permutation: The loops for calculating mean and standard deviation were originally separate. By permuting the loops, we can calculate both mean and standard deviation in the same loop iteration, reducing the number of loop iterations and improving data locality.
-// 2. Loop fusion: The loops for calculating mean and standard deviation were fused into a single loop to further improve data locality and reduce loop overhead.
-// 3. Loop distribution: The calculation of correlation matrix involves nested loops. By distributing the outer loop, we can parallelize the computation of correlation values for different pairs of columns, improving parallelism and performance.
+// By applying loop tiling and loop permutation, we aim to optimize memory access patterns and increase parallelism within the code, leading to improved performance in terms of accumulated cycles (AC) and cycles per call (CPC).

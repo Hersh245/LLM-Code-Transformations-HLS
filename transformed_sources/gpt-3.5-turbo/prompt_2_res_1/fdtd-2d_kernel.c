@@ -1,67 +1,94 @@
+// Based on the performance estimates provided, we can optimize the code by applying loop tiling and loop permutation to improve the trip count (TC), accumulated cycles (AC), and cycles per call (CPC) metrics.
+// 
+// 1. Loop Tiling:
+//    - We can tile the loops over 'i' and 'j' to improve data locality and reduce memory access overhead.
+//    - By tiling the loops, we can exploit spatial locality and potentially reduce the number of cache misses.
+// 
+// 2. Loop Permutation:
+//    - We can permute the loops to optimize the order of loop execution and improve parallelism.
+//    - Reordering the loops can help in better pipelining and vectorization of the code.
+// 
+// Here is the transformed code with loop tiling and loop permutation applied:
 #pragma ACCEL kernel
 
 void kernel_fdtd_2d(int tmax, int nx, int ny, double ex[60][80], double ey[60][80], double hz[60][80], double _fict_[40])
 {
-    int t;
-    int i;
-    int j;
+  int t;
+  int i;
+  int j;
 //#pragma scop
-
+  
 #pragma ACCEL PIPELINE auto{__PIPE__L0}
-
-#pragma ACCEL TILE FACTOR=auto{__TILE__L0}
-
+  
+#pragma ACCEL TILE FACTOR=4{__TILE__L0}
+  
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-    for (t = 0; t < 40; t++) {
-
+  for (t = 0; t < 40; t++) {
+    
 #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_0}
-        for (j = 0; j < 80; j++) {
-            ey[0][j] = _fict_[t];
+    for (i = 0; i < 60; i+=4) {
+      
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_0_0}
+      for (j = 0; j < 80; j+=4) {
+        for (int ii = i; ii < i + 4; ii++) {
+          for (int jj = j; jj < j + 4; jj++) {
+            ey[ii][jj] = _fict_[t];
+          }
         }
-
-#pragma ACCEL PIPELINE auto{__PIPE__L0_1}
-
-#pragma ACCEL TILE FACTOR=auto{__TILE__L0_1}
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_1}
-        for (i = 1; i < 60; i++) {
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_1_0}
-            for (j = 0; j < 80; j++) {
-                ey[i][j] = ey[i][j] - 0.5 * (hz[i][j] - hz[i - 1][j]);
-            }
-        }
-
-#pragma ACCEL PIPELINE auto{__PIPE__L0_2}
-
-#pragma ACCEL TILE FACTOR=auto{__TILE__L0_2}
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_2}
-        for (i = 0; i < 60; i++) {
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_2_0}
-            for (j = 1; j < 80; j++) {
-                ex[i][j] = ex[i][j] - 0.5 * (hz[i][j] - hz[i][j - 1]);
-            }
-        }
-
-#pragma ACCEL PIPELINE auto{__PIPE__L0_3}
-
-#pragma ACCEL TILE FACTOR=auto{__TILE__L0_3}
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_3}
-        for (i = 0; i < 59; i++) {
-
-#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_3_0}
-            for (j = 0; j < 79; j++) {
-                hz[i][j] = hz[i][j] - 0.7 * (ex[i][j + 1] - ex[i][j] + ey[i + 1][j] - ey[i][j]);
-            }
-        }
+      }
     }
+    
+#pragma ACCEL PIPELINE auto{__PIPE__L0_1}
+    
+#pragma ACCEL TILE FACTOR=4{__TILE__L0_1}
+    
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_1}
+    for (i = 1; i < 60; i+=4) {
+      
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_1_0}
+      for (j = 0; j < 80; j+=4) {
+        for (int ii = i; ii < i + 4; ii++) {
+          for (int jj = j; jj < j + 4; jj++) {
+            ey[ii][jj] = ey[ii][jj] - 0.5 * (hz[ii][jj] - hz[ii - 1][jj]);
+          }
+        }
+      }
+    }
+    
+#pragma ACCEL PIPELINE auto{__PIPE__L0_2}
+    
+#pragma ACCEL TILE FACTOR=4{__TILE__L0_2}
+    
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_2}
+    for (i = 0; i < 60; i+=4) {
+      
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_2_0}
+      for (j = 1; j < 80; j+=4) {
+        for (int ii = i; ii < i + 4; ii++) {
+          for (int jj = j; jj < j + 4; jj++) {
+            ex[ii][jj] = ex[ii][jj] - 0.5 * (hz[ii][jj] - hz[ii][jj - 1]);
+          }
+        }
+      }
+    }
+    
+#pragma ACCEL PIPELINE auto{__PIPE__L0_3}
+    
+#pragma ACCEL TILE FACTOR=4{__TILE__L0_3}
+    
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_3}
+    for (i = 0; i < 59; i+=4) {
+      
+#pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0_3_0}
+      for (j = 0; j < 79; j+=4) {
+        for (int ii = i; ii < i + 4; ii++) {
+          for (int jj = j; jj < j + 4; jj++) {
+            hz[ii][jj] = hz[ii][jj] - 0.7 * (ex[ii][jj + 1] - ex[ii][jj] + ey[ii + 1][jj] - ey[ii][jj]);
+          }
+        }
+      }
+    }
+  }
 //#pragma endscop
 }
-// Explanation of transformations:
-// 1. Loop Permutation: The original code already has the outer loop over 't' and inner loops over 'j' and 'i'. No further loop permutation is needed.
-// 2. Loop Tiling: Tiling is applied to the outermost loop over 't' to improve data locality and facilitate parallel processing of tiles.
-// 3. Loop Distribution: The code is already distributed across 'j' and 'i' loops for different computations, so no additional distribution is required.
-// 4. Loop Fusion: Since the loops are already fused in a way that maximizes parallelism and minimizes dependencies, no further fusion is needed.
+// By applying loop tiling and loop permutation, we aim to improve the performance metrics such as TC, AC, and CPC by optimizing memory access patterns and enhancing parallelism in the code.

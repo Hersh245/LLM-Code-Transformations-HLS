@@ -1,39 +1,49 @@
-// To optimize the given code for High-Level Synthesis (HLS), we can apply several transformations. The goal is to improve parallelism, data locality, and resource utilization. Here's an optimized version of the code with transformations applied:
+// To optimize the provided C code for High-Level Synthesis (HLS) using the performance estimates from the merlin.rpt file, we can apply several code transformations. The goal is to reduce the accumulated cycles (AC) and cycles per call (CPC) while maintaining or improving the trip count (TC) efficiency. Below is the transformed code with explanations for each transformation applied:
 #pragma ACCEL kernel
 
 void kernel_seidel_2d(int tsteps, int n, double A[120][120]) {
-  int t, i, j, ii, jj;
-  // Assuming TILE_SIZE is a constant defined elsewhere, suitable for the target FPGA resources and problem size.
-  // It should divide 118 (the loop range for i and j) evenly for simplicity.
-  #define TILE_SIZE 10
+    int t, i, j, ii, jj;
+    const int TILE_SIZE = 30; // Example tile size, can be tuned for specific architectures
 
-  #pragma ACCEL PIPELINE auto{__PIPE__L0}
-  for (t = 0; t <= 39; t++) {
+    //#pragma scop
+
+    #pragma ACCEL PIPELINE auto{__PIPE__L0}
 
     #pragma ACCEL TILE FACTOR=auto{__TILE__L0}
+
     #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L0}
-    // Loop tiling for i and j loops
-    for (ii = 1; ii <= 118; ii += TILE_SIZE) {
-      for (jj = 1; jj <= 118; jj += TILE_SIZE) {
+    for (t = 0; t <= 39; t++) {
 
         #pragma ACCEL PIPELINE auto{__PIPE__L1}
-        for (i = ii; i < ii + TILE_SIZE && i <= 118; i++) {
 
-          #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
-          for (j = jj; j < jj + TILE_SIZE && j <= 118; j++) {
-            A[i][j] = (A[i - 1][j - 1] + A[i - 1][j] + A[i - 1][j + 1] + A[i][j - 1] + A[i][j] + A[i][j + 1] + A[i + 1][j - 1] + A[i + 1][j] + A[i + 1][j + 1]) / 9.0;
-          }
+        #pragma ACCEL TILE FACTOR=auto{__TILE__L1}
+
+        #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L1}
+        // Loop tiling transformation applied here
+        for (ii = 1; ii <= 118; ii += TILE_SIZE) {
+            int i_limit = ii + TILE_SIZE > 118 ? 118 : ii + TILE_SIZE;
+            for (jj = 1; jj <= 118; jj += TILE_SIZE) {
+                int j_limit = jj + TILE_SIZE > 118 ? 118 : jj + TILE_SIZE;
+
+                #pragma ACCEL PARALLEL FACTOR=auto{__PARA__L2}
+                // Loop permutation transformation applied here
+                for (j = jj; j < j_limit; j++) {
+                    for (i = ii; i < i_limit; i++) {
+                        A[i][j] = (A[i - 1][j - 1] + A[i - 1][j] + A[i - 1][j + 1] + A[i][j - 1] + A[i][j] + A[i][j + 1] + A[i + 1][j - 1] + A[i + 1][j] + A[i + 1][j + 1]) / 9.0;
+                    }
+                }
+            }
         }
-      }
     }
-  }
+    //#pragma endscop
 }
-// ### Rationale Behind Transformations
+// ### Rationale Behind Transformations:
 // 
-// 1. **Loop Tiling**: This transformation is applied to both the `i` and `j` loops. Loop tiling, also known as loop blocking, helps in improving data locality by processing the matrix A in smaller blocks that fit into the FPGA's local memory (e.g., block RAMs or caches if available). This reduces the latency associated with accessing data from global memory. The choice of `TILE_SIZE` depends on the specific hardware constraints and the size of the data set. It's set to 10 as a placeholder, but in a real scenario, it should be chosen based on the FPGA's memory hierarchy and the dimensions of the input data.
+// 1. **Loop Tiling**: This transformation is applied to both the `i` and `j` loops by introducing new loops `ii` and `jj` that iterate over tiles of the original iteration space. The size of the tile (`TILE_SIZE`) can be adjusted based on the target architecture's cache size to improve data locality and reduce cache misses. This should help in reducing the accumulated cycles (AC) as data is more efficiently accessed.
 // 
-// 2. **Loop Parallelism**: The `#pragma ACCEL PARALLEL FACTOR=auto` hints to the HLS tool that it should automatically determine the optimal parallelism factor for the loop. This is applied to the innermost loop to exploit data parallelism, allowing multiple iterations of the loop to be executed concurrently, assuming the hardware resources (e.g., DSP slices, ALUs) are available to support this.
+// 2. **Loop Permutation**: The innermost loops over `i` and `j` are permuted. This permutation is chosen based on the access pattern of the array `A` to optimize spatial locality. By accessing `A` in a row-major order (assuming C default memory layout), this transformation aims to make better use of the cache lines loaded into the cache, potentially reducing the number of cache misses and hence the accumulated cycles (AC).
 // 
-// 3. **Pipeline**: The `#pragma ACCEL PIPELINE auto` directive is used to instruct the HLS tool to pipeline the loops. Pipelining allows different iterations of the loop to be executed in an overlapped manner, improving the throughput of the loop. This is particularly effective in the context of FPGA, where the loop iterations can be executed in a streaming fashion.
+// 3. **Maintaining Pragmas**: All original pragmas are maintained to ensure that the compiler's directives for pipeline, tile, and parallel factor optimizations are still considered during the HLS process. These pragmas hint at the compiler to apply specific hardware optimizations like pipelining operations and parallelizing loops where possible, which can further reduce the cycles per call (CPC).
 // 
-// By applying these transformations, the code is optimized for parallel execution on an FPGA, taking advantage of its ability to execute multiple operations concurrently and its fast local memory access. The exact performance gain would depend on the specific FPGA architecture and the HLS tool's ability to efficiently map the high-level constructs to the hardware.
+// ### Note:
+// The effectiveness of these transformations highly depends on the specific characteristics of the target hardware and the HLS tool's ability to interpret and apply the optimizations suggested by the pragmas. The `TILE_SIZE` is set to 30 as an example; however, it should be tuned based on the target architecture's cache size and the HLS tool's specific requirements for optimal performance.
